@@ -7,23 +7,72 @@
  * A child that ends parked leaves its conversation held and resting, so
  * the host watches its wake again (the engine's restsParked) and a wake
  * starts a child for it anew. No process runs for a parked conversation.
+ * One whose child went mid-turn is woken at once instead, so a turn its
+ * child was killed in carries on as a host's restart carries one on.
  */
 
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import type { BackendChildren } from "./backend.ts";
 import type { ChildPolicy } from "./child-policy.ts";
-import { askOnce, reach } from "./child-requests.ts";
 import {
+	askOnce,
+	childUnreachable,
+	madeByHost,
+	reach,
+} from "./child-requests.ts";
+import {
+	ANSWERS_WITHIN_MS,
 	type ChildSupervisor,
 	childSupervisor,
+	EXITS_WITHIN_MS,
 	type KeptRoster,
 } from "./child-supervisor.ts";
 import type { Units } from "./child-units.ts";
 import type { ChildEnding } from "./child-watch.ts";
 import { type HeldChildren, heldChildren, passedOn } from "./children.ts";
-import { hostRefusal } from "./dispatch.ts";
+import { type ControlReply, hostRefusal } from "./dispatch.ts";
 import type { ControlRequest } from "./protocol.ts";
 import { versionsMove } from "./what-starts.ts";
+
+/**
+ * How long after one whose child went mid-turn is woken a second such
+ * ending leaves it resting, so a turn that kills its child each time
+ * starts no child after child.
+ */
+export const WOKEN_AGAIN_AFTER_MS = 10 * 60_000;
+
+/**
+ * How many times in `WAKES_COUNTED_OVER_MS` one whose child went
+ * mid-turn is woken, so a turn that kills its child each time, however
+ * long it takes to, asks the model again only so often. The count is
+ * kept in the host's memory, so it holds over one host's run.
+ */
+export const WAKES_A_DAY = 3;
+
+/** How far back the wakes `WAKES_A_DAY` counts reach. */
+export const WAKES_COUNTED_OVER_MS = 24 * 60 * 60_000;
+
+/**
+ * How long an end its child agreed to, or gave no answer to, still owns
+ * the child's ending: past the supervisor's wait for an ended child to
+ * exit and for a stuck one to answer, so a close's own ending is the
+ * close's, while a child that lives on is woken for a later death.
+ */
+export const END_ASKED_HOLDS_MS = EXITS_WITHIN_MS + ANSWERS_WITHIN_MS;
+
+/** What ends a conversation's turn when its child takes it. */
+const ENDS_A_TURN: ReadonlySet<string> = new Set(
+	"close release abort".split(" "),
+);
+
+/**
+ * An end asked of a conversation's child, for one request op: how many
+ * asks of it are still unanswered, and until when an agreed one holds.
+ */
+interface EndAsked {
+	unanswered: number;
+	until: number;
+}
 
 /** A host's children, as the backend, the server and its stop use them. */
 export interface HostedChildren {
@@ -56,6 +105,15 @@ export function hostChildren(options: {
 	restGivenUp?: (entry: RosterEntry) => string | undefined;
 	report: (error: unknown) => void;
 	say?: (line: string) => void;
+	/** Wake a held conversation, as a message to it does: the backend's. */
+	wake?: (sessionId: string) => Promise<void>;
+	/**
+	 * Whether the host is stopping, when a wake it refuses is as it should
+	 * be; any other wake that doesn't land is reported.
+	 */
+	stopping?: () => boolean;
+	/** For tests: the clock a wake's spacing is read by. */
+	now?: () => number;
 	/** A child's conversation became another, as its supervisor heard. */
 	became?: (previousId: string, nextId: string) => void;
 	/** For tests: the supervisor's own timings. */
@@ -76,10 +134,32 @@ export function hostChildren(options: {
 		...(options.say ? { say: options.say } : {}),
 		spares: () => policy.spares?.() ?? false,
 		spareMoved: versionsMove(),
-		ended: (sessionId, why) => rest(sessionId, why),
-		// Given up before it ran there, so it never parked: still held.
-		gaveUp: (sessionId) => restGivenUp(sessionId),
-		...(options.became ? { became: options.became } : {}),
+		ended: (sessionId, why, busy) => {
+			const endAsked = endWasAsked(sessionId);
+			const cutOff = why === "failed" && busy;
+			// Its close, release or abort failed with it, so carrying the turn
+			// on would undo what the person asked; they ask again.
+			if (cutOff && endAsked)
+				options.say?.(
+					`${sessionId}: its child failed mid-turn as it was asked to end it or its turn, so it rests until it is asked for`,
+				);
+			const waking = cutOff && !endAsked && mayWake(sessionId);
+			rest(sessionId, why, waking);
+			if (waking) wakeCutOff(sessionId);
+		},
+		// An abort's turn is over, whether or not its answer came.
+		atRest: (sessionId) => abortsAnswered(sessionId),
+		// Given up before it ran there, so it never parked: still held, and
+		// no child of it is left to end as it was asked.
+		gaveUp: (sessionId) => {
+			forgetEnds(sessionId);
+			restGivenUp(sessionId);
+		},
+		// Its child ends as what it became, so no ending reads these again.
+		became: (previousId, nextId) => {
+			forgetEnds(previousId);
+			options.became?.(previousId, nextId);
+		},
 		...options.timings,
 	});
 
@@ -90,7 +170,7 @@ export function hostChildren(options: {
 	// why it can't: on 23 November two children ended parked that
 	// restsParked declined, and a hub slept unwatched for 19 minutes
 	// until a window came.
-	function rest(sessionId: string, why: ChildEnding): void {
+	function rest(sessionId: string, why: ChildEnding, waking: boolean): void {
 		if (why !== "parked" && why !== "failed") return;
 		const entry = roster.entries().find((held) => held.sessionId === sessionId);
 		if (!entry) return;
@@ -99,13 +179,146 @@ export function hostChildren(options: {
 			const refused = options.restGivenUp
 				? options.restGivenUp(entry)
 				: "this engine rests none given up";
-			if (refused !== undefined)
-				options.say?.(
-					`${sessionId}: its child ended ${why}, and nothing watches its wake until it is asked for, as ${refused}`,
-				);
+			if (refused === undefined) return;
+			options.say?.(
+				waking
+					? `${sessionId}: its child ended ${why}, and nothing watches its wake, as ${refused}, so it is woken now instead`
+					: `${sessionId}: its child ended ${why}, and nothing watches its wake until it is asked for, as ${refused}`,
+			);
 		} catch (error) {
 			report(error);
 		}
+	}
+
+	// A child that failed while busy, as one killed mid-turn does, left
+	// words or a run nobody answered. Rested, it waited for a window or a
+	// message, though a host's own restart carries every such run on. It
+	// is woken at once, as a message wakes one, unless one woken so within
+	// WOKEN_AGAIN_AFTER_MS failed the same way, or it was woken so
+	// WAKES_A_DAY times in the day before. A child that says it failed
+	// while busy is woken too, since no word says which turn it left.
+	// Each conversation's wakes are kept only for that day, by its id in
+	// either case, as the supervisor takes either case as one. A wake is
+	// counted once it lands, so one that didn't spends none of the spacing;
+	// while it is landing, the conversation is in `landing`, so two endings
+	// never both wake it.
+	const wokenAt = new Map<string, number[]>();
+	const landing = new Set<string>();
+	// Each conversation, by its id in either case, whose child was asked
+	// to end it or its turn, with one mark for each op asked: it holds while
+	// an ask of that op is unanswered, and for END_ASKED_HOLDS_MS once the
+	// child agreed to one, so a child that dies as it is asked wakes nothing.
+	// One that couldn't be reached, or whose asker hung up first, may still
+	// hold the ask, so it stays unanswered until the child ends, or for an
+	// abort, which never ends the child, until the child says the turn is
+	// over: a child that lives on then rests at a death in that turn rather
+	// than carry on a turn the person may have closed, and is woken at a
+	// death in a later one. An abort's mark goes then even once it was
+	// agreed, as the turn it ended is over. A refusal answers only its own
+	// ask, and the child's ending takes every mark.
+	const endsAsked = new Map<string, Map<string, EndAsked>>();
+	const now = options.now ?? Date.now;
+	function asking(
+		sessionId: string,
+		op: string,
+	): ((reply: ControlReply | undefined) => void) | undefined {
+		if (!ENDS_A_TURN.has(op)) return undefined;
+		const id = sessionId.toLowerCase();
+		const marks = endsAsked.get(id) ?? new Map<string, EndAsked>();
+		endsAsked.set(id, marks);
+		const mark = marks.get(op) ?? {
+			unanswered: 0,
+			until: Number.NEGATIVE_INFINITY,
+		};
+		mark.unanswered += 1;
+		marks.set(op, mark);
+		return (reply) => {
+			// Taken back since, by the child's ending or its turn's.
+			if (endsAsked.get(id) !== marks || marks.get(op) !== mark) return;
+			// Not reached, or its asker gone first: the child may hold it still.
+			// A child's own refusal may carry the same code, and is a refusal.
+			if (reply !== undefined && !reply.ok && madeByHost(reply)) return;
+			mark.unanswered -= 1;
+			const at = now();
+			if (reply?.ok) mark.until = Math.max(mark.until, at + END_ASKED_HOLDS_MS);
+			if (mark.unanswered > 0 || mark.until > at) return;
+			marks.delete(op);
+			if (marks.size === 0) endsAsked.delete(id);
+		};
+	}
+	function abortsAnswered(sessionId: string): void {
+		const id = sessionId.toLowerCase();
+		const marks = endsAsked.get(id);
+		if (!marks) return;
+		marks.delete("abort");
+		if (marks.size === 0) endsAsked.delete(id);
+	}
+	function forgetEnds(sessionId: string): void {
+		endsAsked.delete(sessionId.toLowerCase());
+	}
+	function endWasAsked(sessionId: string): boolean {
+		const id = sessionId.toLowerCase();
+		const marks = endsAsked.get(id);
+		endsAsked.delete(id);
+		const at = now();
+		return [...(marks?.values() ?? [])].some(
+			(mark) => mark.unanswered > 0 || mark.until > at,
+		);
+	}
+	// Whether one whose child failed mid-turn is woken, saying why not.
+	function mayWake(sessionId: string): boolean {
+		if (!options.wake) return false;
+		const at = now();
+		const id = sessionId.toLowerCase();
+		if (landing.has(id)) {
+			options.say?.(
+				`${sessionId}: its child failed mid-turn as its last wake was still landing, so it rests until it is asked for`,
+			);
+			return false;
+		}
+		const recent = (wokenAt.get(id) ?? []).filter(
+			(one) => at - one < WAKES_COUNTED_OVER_MS,
+		);
+		if (recent.length > 0) wokenAt.set(id, recent);
+		else wokenAt.delete(id);
+		const last = recent.at(-1);
+		if (last !== undefined && at - last < WOKEN_AGAIN_AFTER_MS) {
+			options.say?.(
+				`${sessionId}: its child failed mid-turn again within ${WOKEN_AGAIN_AFTER_MS / 60_000} minutes of its last wake, so it rests until it is asked for`,
+			);
+			return false;
+		}
+		if (recent.length >= WAKES_A_DAY) {
+			options.say?.(
+				`${sessionId}: its child failed mid-turn after ${WAKES_A_DAY} wakes for that in a day, so it rests until it is asked for`,
+			);
+			return false;
+		}
+		return true;
+	}
+
+	// Wakes one mayWake let wake, once it rests, so its wake stays watched.
+	function wakeCutOff(sessionId: string): void {
+		const { wake } = options;
+		if (!wake) return;
+		options.say?.(
+			`${sessionId}: its child failed mid-turn, so it is woken to carry the turn on`,
+		);
+		const id = sessionId.toLowerCase();
+		landing.add(id);
+		// A host stopping refuses every wake, as it should, so that is only
+		// said; any other, as a slot that won't free, is a fault reported too.
+		wake(sessionId)
+			.then(
+				() => wokenAt.set(id, [...(wokenAt.get(id) ?? []), now()]),
+				(error: unknown) => {
+					options.say?.(
+						`${sessionId}: its wake after its child failed mid-turn didn't land: ${error instanceof Error ? error.message : String(error)}, so it rests until it is asked for`,
+					);
+					if (!options.stopping?.()) report(error);
+				},
+			)
+			.finally(() => landing.delete(id));
 	}
 
 	// One whose child was given up never parked, so restsParked would
@@ -143,12 +356,21 @@ export function hostChildren(options: {
 	async function ask(sessionId: string, request: ControlRequest) {
 		const route = routes.routeOf(sessionId);
 		if (!route) throw new Error(`Conversation is not hosted: ${sessionId}`);
-		const reply = await askOnce(
-			await reach(route.socket),
-			`${JSON.stringify(passedOn(request, route))}\n`,
-			request.id,
-			report,
-		);
+		const settle = asking(sessionId, request.op);
+		let reply: ControlReply;
+		try {
+			reply = await askOnce(
+				await reach(route.socket),
+				`${JSON.stringify(passedOn(request, route))}\n`,
+				request.id,
+				report,
+			);
+		} catch (error) {
+			// Not reached: it may have died as it was asked.
+			settle?.(childUnreachable(request.id));
+			throw error;
+		}
+		settle?.(reply);
 		if (!reply.ok) throw hostRefusal(reply.error.code, reply.error.message);
 		return reply.result;
 	}
@@ -166,7 +388,13 @@ export function hostChildren(options: {
 			ask,
 			left: (sessionId) => supervisor.left(sessionId),
 		},
-		routes,
+		routes: {
+			...routes,
+			asking: (request) =>
+				"sessionId" in request
+					? asking(request.sessionId, request.op)
+					: undefined,
+		},
 		adopt: () => supervisor.adopt(),
 		close() {
 			supervisor.close();

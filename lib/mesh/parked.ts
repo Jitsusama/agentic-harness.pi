@@ -136,7 +136,10 @@ function wakesOnceReached(
 		askedEach: asksEach(message, listener),
 		now,
 	});
-	// What it leads acts on once the mesh settles: a turn all the same.
+	// What it leads acts on once the mesh settles: a turn all the same. A
+	// session that can't take up its pivot asks it a question re the pivot,
+	// which is a turn however the asker's presence here names who leads it,
+	// as one on another machine's may not.
 	return heed.attention === "turn" || (led && heed.attention === "act");
 }
 

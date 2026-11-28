@@ -89,6 +89,10 @@ would miss what another binds over it.
   reviewers may start, which they do only while this package runs
   from pi's installed packages, since each loads its files outside
   the fence.
+- **`package-root.ts`**: this package's own folder as the process
+  loaded it, apart from `installed-only.ts`, which reads pi's settings
+  through pi's own package, so the fence's code that scripts and
+  reviewers' launchers reach under plain node loads without pi.
 - **`fence-run.ts`**: one command in the fence for a caller outside
   pi, such as the mycelium node's `runs` prefix: the agent fence, or
   the strict profile inside the fence's bubblewrap root, refusing a

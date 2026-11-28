@@ -55,6 +55,7 @@ import { takeHeldAtStart } from "./kept-holding.ts";
 import type { LandingKeeper } from "./landing-history.ts";
 import type { Listener } from "./message.ts";
 import type { MoveOff, Moving } from "./moving.ts";
+import { hubTakesNone } from "./need-route.ts";
 import {
 	type FenceKind,
 	joinedWithin,
@@ -811,9 +812,15 @@ export function localPeer(at: Surroundings): Peer {
 			...(signing && yieldedTo === undefined ? [signing] : []),
 			sessionAddress(at.session),
 		];
+		// A README subject whose hub takes no need, declared before config
+		// refused one, comes after the led areas, so within MOST_SUBJECTS it
+		// never pushes out an area a need does reach (#2220's sixth
+		// council, F58).
+		const declared = work.subjects ?? [];
 		subjects = subjectsOf(ownedPrefixes(at.owners?.() ?? [], working), [
-			...(work.subjects ?? []),
+			...declared.filter((one) => !hubTakesNone(one)),
 			...(quest && at.ledAreas ? at.ledAreas(quest) : []),
+			...declared.filter(hubTakesNone),
 		]);
 		serves = work.serves ?? [];
 		lineage =

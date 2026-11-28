@@ -103,6 +103,24 @@ describe("a reviewer started on a room", () => {
 		expect(launch.args).not.toContain("--session-dir");
 		expect(launch.args).not.toContain("/state/s");
 	});
+
+	it("leaves out this machine's own defaults from outside the harness, as a room reaches its model itself", () => {
+		const proxy = "/home/p/.pi/agent/extensions/proxy/index.ts";
+		const guide = "/home/p/.pi/agent/skills/proxy/SKILL.md";
+		const launch = roomLaunch(
+			{ ...place, hereOnly: [proxy, guide] },
+			code,
+			["--extension", proxy, "--skill", guide, ...reviewer()],
+			"b",
+		);
+		if (!("args" in launch)) throw new Error(launch.stays);
+
+		expect(launch.args, "the extension left out").not.toContain(proxy);
+		expect(launch.args, "the skill left out").not.toContain(guide);
+		expect(launch.args, "the harness's own still go").toContain(
+			"packs/review-journal/index.ts",
+		);
+	});
 });
 
 describe("a reviewer that stays here", () => {

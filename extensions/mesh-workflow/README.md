@@ -286,7 +286,11 @@ and can answer a question or a gate left open on screen.
   says which peers have it and which not yet, and under each
   one withdrawn, what replaced it. Under each question it
   asked, it says who answered and in which message, who is
-  answering, or for how long it has gone unanswered. It keeps
+  answering, or for how long it has gone unanswered. Under each
+  pivot it sent, it says who answered it (a session that can't
+  take it up asks), who has it by read marker, who not yet, and
+  whose take-up is unknown, being on another machine, whose
+  marker stays there. It keeps
   the newest that fit in 12 KB, at most 50, and names the
   oldest shown, so `before` with that id reads on.
 - `mesh_join`, `mesh_leave` and `mesh_groups`: the groups this
@@ -517,10 +521,14 @@ and its groups.
   for an orchestrator a finding or fyi sent to it by a session
   it leads, since passing those on to the person is its work
   (on 2026-11-07 three orchestrators sat on theirs until they
-  parked). An fyi that only answers what the orchestrator sent,
-  such as a pivot taken, is a note for its next turn, unless it
-  names a landing or the orchestrator is parked: on 2026-11-17,
-  532 of 1,097 such fyis to four orchestrators were answers. It
+  parked). Any other fyi that only answers what the
+  orchestrator sent is a note for its next turn, unless it
+  names a landing or the orchestrator is parked: on
+  2026-11-17, 532 of 1,097 such fyis to four orchestrators were
+  answers, 322 of them a pivot taken up. Sessions now take a
+  pivot up unanswered, since `mesh_read` shows who has it, and
+  one that can't asks its orchestrator a question re the pivot,
+  which takes a turn as any question answering it does. It
   waits 30 seconds and up to 30 more, the extra different for
   each session so peers hearing one message do not start at
   once, and what arrives meanwhile goes in the same turn. A
@@ -596,15 +604,17 @@ takes as `--owner`, read at each refresh from
 `~/.config/cadence/owners.txt` (under `XDG_CONFIG_HOME` when set;
 `PI_OWNERS_FILE` names another file). Then its quest's own
 `subjects`, set with the quest tool's `config` (`ref`
-`subjects=a,b`). At most 12, each plain text of at most 120
+`subjects=a,b`). At most 24, each plain text of at most 120
 characters, as the node reads them; presence leaves the key out
-while there are none. A need finds a cell by the words of a
-subject's narrowest part, after its last colon, dot or slash, so
-`config` refuses one whose narrowest part holds no word routing
-reads (each too short, past 32 letters or as common as can or
-after), as `x:can` or `hooks:after`. It refuses one holding any
-word there past 32 letters as well: a hub takes a need only when
-the need says every word of its subject, and no need keeps such a
+while there are none. A node before mycelium 22d57885 keeps only
+the first 12, the same 12 a cap of 12 would say, and says nothing
+of the rest. A need finds a cell by the words of a subject's
+narrowest part, after its last colon, dot or slash, so `config`
+refuses one whose narrowest part holds no word routing reads
+(each too short, past 32 letters or as common as can or after),
+as `x:can` or `hooks:after`. It refuses one holding any word
+there past 32 letters as well: a hub takes a need only when the
+need says every word of its subject, and no need keeps such a
 word. Its report names any subject of either kind the README
 already holds, and neither is ever a led area. A subject routes a
 need and grants nothing.

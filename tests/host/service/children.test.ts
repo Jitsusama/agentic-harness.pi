@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { madeByHost } from "../../../host/service/child-requests.ts";
 import {
 	childPss,
 	heldChildren,
@@ -24,6 +25,7 @@ import {
 import { controlRequest } from "../../../host/service/client.ts";
 import type {
 	ControlBackend,
+	ControlReply,
 	HostIdentity,
 } from "../../../host/service/dispatch.ts";
 import { jsonLines } from "../../../host/service/framing.ts";
@@ -452,6 +454,111 @@ describe("a host with conversations in children", () => {
 			expect.objectContaining({ op: "close", expectedHost: child }),
 		]);
 		expect(asked).toEqual([]);
+	});
+	// The children's host reads a child that dies before it answers an end
+	// as ended by it, so the server notes each end it passes on.
+	it("notes each end it passes on to a child, settling it with the child's answer", async () => {
+		const noted: [string, unknown][] = [];
+		// How many requests the child had heard as each was noted.
+		routes.asking = (request) => {
+			noted.push([request.op, childAsked.length]);
+			return (reply) => noted.push([request.op, reply]);
+		};
+		const reply = await controlRequest(hostPath, {
+			v: 1,
+			id: "close",
+			op: "close",
+			sessionId: a,
+			expectedHost: host,
+		});
+		await controlRequest(hostPath, {
+			v: 1,
+			id: "close",
+			op: "close",
+			sessionId: a,
+			expectedHost: { ...host, owner: { pid: process.pid, startedAt: 9 } },
+		});
+		routes.hold(conversation(a), {
+			socket: join(dir, "gone.sock"),
+			identity: child,
+		});
+		const gone = await controlRequest(hostPath, {
+			v: 1,
+			id: "abort",
+			op: "abort",
+			sessionId: a,
+			expectedHost: host,
+		});
+
+		expect(
+			noted,
+			"one noted before each child heard, none for a stale host",
+		).toEqual([
+			["close", 0],
+			["close", reply],
+			["abort", 1],
+			["abort", gone],
+		]);
+		expect(gone).toMatchObject({ error: { code: "child_unreachable" } });
+	});
+	// F84, F90: an end never sent ended nothing, so its mark goes; one
+	// the child took before its window hung up may still end the turn.
+	it("settles an end with nothing when its window is gone before the child is reached", async () => {
+		const settled: unknown[] = [];
+		routes.asking = () => {
+			// The host closes as the end is passed on, so the window's
+			// connection is gone before the child's connect lands.
+			void listeners[1]?.close();
+			return (reply) => settled.push(reply);
+		};
+		const window = createConnection(hostPath);
+		const seen = messages(window);
+		window.write(
+			line({
+				v: 1,
+				id: "close",
+				op: "close",
+				sessionId: a,
+				expectedHost: host,
+			}),
+		);
+
+		expect(await untilClosed(seen), "no answer to a window gone").toEqual([]);
+		await vi.waitFor(() => expect(settled).toHaveLength(1));
+		expect(settled, "never sent, so nothing ended").toEqual([undefined]);
+		expect(childAsked, "the child never heard it").toEqual([]);
+	});
+	it("settles an end as unreached when its window hangs up while the child holds it", async () => {
+		const settled: ControlReply[] = [];
+		routes.asking = () => (reply) => {
+			if (reply) settled.push(reply);
+			else settled.push({ v: 1, id: "never sent", ok: true, result: null });
+		};
+		let heard = false;
+		await strangeChild(b, () => {
+			heard = true;
+		});
+		const window = createConnection(hostPath);
+		window.write(
+			line({
+				v: 1,
+				id: "close",
+				op: "close",
+				sessionId: b,
+				expectedHost: host,
+			}),
+		);
+		await vi.waitFor(() => expect(heard, "the child took it").toBe(true));
+
+		window.destroy();
+
+		await vi.waitFor(() => expect(settled).toHaveLength(1));
+		const [reply] = settled as [ControlReply];
+		expect(reply, "the child may still end the turn").toMatchObject({
+			ok: false,
+			error: { code: "child_unreachable" },
+		});
+		expect(madeByHost(reply), "the host's word, not the child's").toBe(true);
 	});
 	it("ends a child's conversation asked under the child's name, as the child lists it", async () => {
 		// The machine's host registry, and so a mesh presence, names the

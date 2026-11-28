@@ -1187,17 +1187,24 @@ export function partOfNumbered(
 }
 
 /**
- * Whether `word` is a phrase's id whose first word is among `saying`,
- * as check-out is when check is: said of a need, the first word already
- * says that no cell works on it, and the asker never wrote the phrase's
- * id (#2220's seventh round, F69).
+ * A need's `words`, read from `text`, as its asker wrote them, for the
+ * need tool to say. A phrase's id read from prose, roll-back of roll
+ * back, is said as the prose put it, and goes unsaid where its first
+ * word is said beside it, since roll says it and the asker never wrote
+ * roll-back (#2220's seventh round, F69). That holds of each list a
+ * reply says, whichever cell holds the first word (round 7b, F72, F75
+ * and F80). An id typed joined, check-out, is the asker's own, so it is
+ * said as typed (F83).
  */
-export function phraseOfSaid(
-	word: string,
-	saying: ReadonlySet<string>,
-): boolean {
-	const head = phraseHead(word);
-	return head !== undefined && saying.has(head);
+export function saidAs(words: readonly string[], text: string): string[] {
+	const lower = text.toLowerCase().replace(APOSTROPHE_LIKE, "'");
+	const typed = new Set([...lower.matchAll(JOINED_ID)].map(([id]) => id));
+	const listed = new Set(words);
+	return words.flatMap((word) => {
+		const head = phraseHead(word);
+		if (head === undefined || typed.has(word)) return [word];
+		return listed.has(head) ? [] : [word.replace("-", " ")];
+	});
 }
 
 /** Whether joined id `word` is said inside a longer id the need says. */

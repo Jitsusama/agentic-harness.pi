@@ -9,10 +9,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	briefFitsARoom,
 	myceliumAt,
 	roomFor,
+	roomHarness,
 } from "../../../../extensions/review-integration/tools/ask-room.ts";
 import type { ChangeRef } from "../../../../lib/core/review/index.ts";
+import {
+	clearSubagentDefaults,
+	registerSubagentDefaultExtension,
+	registerSubagentDefaultSkill,
+} from "../../../../lib/subagent/defaults.ts";
+import { MAX_ROOM_BRIEF_BYTES } from "../../../../lib/subagent/runpi/room-launch.ts";
+import { askFunctions } from "./ask-source.ts";
 
 const harness = () => ({ root: "/pkg", entryLoads: ["/pkg/fence.ts"] });
 const head = "b".repeat(40);
@@ -128,6 +137,48 @@ describe("the room a round's reviewers run on", () => {
 
 		await roomFor(mine, head, counted, await config({}), found);
 		expect(asked).toBe(0);
+	});
+
+	it("leaves this session's registered defaults here, since they are this machine's model access", async () => {
+		const path = await config({ room: { machine: "room-1" } });
+		const proxy = "/home/p/.pi/agent/extensions/proxy/index.ts";
+		const guide = "/home/p/.pi/agent/skills/proxy/SKILL.md";
+		registerSubagentDefaultExtension(proxy);
+		registerSubagentDefaultSkill(guide);
+		try {
+			const folder = await mkdtemp(join(tmpdir(), "ask-room-tree-"));
+			const room = await roomFor(
+				change("github:Jitsusama/agentic-harness.pi"),
+				head,
+				() => roomHarness(folder),
+				path,
+				found,
+			);
+
+			expect(room?.place.hereOnly, "both defaults left here").toEqual([
+				proxy,
+				guide,
+			]);
+		} finally {
+			clearSubagentDefaults();
+		}
+	});
+});
+
+describe("a round's prompt on a room", () => {
+	it("fits up to the bytes a room's start carries, counted as bytes, not characters", () => {
+		expect(briefFitsARoom("a".repeat(MAX_ROOM_BRIEF_BYTES))).toBe(true);
+		expect(briefFitsARoom("a".repeat(MAX_ROOM_BRIEF_BYTES + 1))).toBe(false);
+		// Two bytes a character: half the limit in characters is the whole of it in bytes.
+		const half = MAX_ROOM_BRIEF_BYTES / 2;
+		expect(briefFitsARoom("é".repeat(half))).toBe(true);
+		expect(briefFitsARoom("é".repeat(half + 1))).toBe(false);
+	});
+
+	it("keeps a round too large for a room here, never asking one", () => {
+		const body = askFunctions().get("councilRound") ?? "";
+		expect(body).toMatch(/briefFitsARoom\(prompt\)/);
+		expect(body).toMatch(/briefFits\s*\?\s*await roomFor\(/);
 	});
 });
 

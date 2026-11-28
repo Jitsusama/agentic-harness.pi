@@ -142,6 +142,11 @@ export async function serveHost(options: {
 	 */
 	rollout?: AdmitAnother;
 	/**
+	 * Whether this process is one conversation's own, a child's, so a heap
+	 * snapshot of it stops nothing else (backend.ts).
+	 */
+	ownProcess?: boolean;
+	/**
 	 * Whether a held conversation was woken from a rest someone else kept,
 	 * so the start resumes it as woken rather than resting it again.
 	 */
@@ -196,6 +201,9 @@ export async function serveHost(options: {
 	let host: SessionHost | undefined;
 	let listener: Awaited<ReturnType<typeof listenControl>> | undefined;
 	let children: HostedChildren | undefined;
+	// Declared before the children's hosting, which reads it whenever a wake
+	// fails, as one can while the start still adopts and resumes.
+	let stopping: Promise<void> | undefined;
 	try {
 		host = new SessionHost({
 			key,
@@ -216,14 +224,15 @@ export async function serveHost(options: {
 		const listened = new Promise<HostBackend["wake"]>((resolve) => {
 			listening = resolve;
 		});
+		const wake: HostBackend["wake"] = (sessionId) =>
+			wakes ? wakes(sessionId) : listened.then((woken) => woken(sessionId));
 		// Before anything resumes, so a conversation that ends or becomes
 		// another inside pi is never missed.
 		const events = conversationEvents({
 			roster,
 			report: options.report,
 			...(options.say ? { say: options.say } : {}),
-			wake: (sessionId) =>
-				wakes ? wakes(sessionId) : listened.then((wake) => wake(sessionId)),
+			wake,
 		});
 		const { becoming } = options;
 		// The backend, once it exists, hears each conversation that became
@@ -256,6 +265,9 @@ export async function serveHost(options: {
 					// A child's conversation that became another is told the backend
 					// as one the host runs is, so a repeat names the one now.
 					became: (previousId, nextId) => succeeded?.(previousId, nextId),
+					// One whose child failed mid-turn is woken as a message wakes it.
+					wake,
+					stopping: () => stopping !== undefined,
 					report: options.report,
 					...(options.say ? { say: options.say } : {}),
 				});
@@ -282,6 +294,7 @@ export async function serveHost(options: {
 			engine,
 			admitAnother,
 			held: order,
+			...(options.ownProcess === true ? { ownProcess: true } : {}),
 			...(children ? { children: children.backend } : {}),
 			...(options.say ? { say: options.say } : {}),
 			...(options.changes ? { changes: options.changes } : {}),
@@ -324,7 +337,6 @@ export async function serveHost(options: {
 		});
 		for (const { reason } of unresumed) options.report(reason);
 		const running = host;
-		let stopping: Promise<void> | undefined;
 		let restarting = false;
 		return {
 			identity,

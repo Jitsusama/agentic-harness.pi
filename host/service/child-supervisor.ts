@@ -481,8 +481,14 @@ export function childSupervisor(options: {
 	report: (error: unknown) => void;
 	/** Writes a line to the host's journal, as each child ends. */
 	say?: (line: string) => void;
-	/** A child's conversation ended, as it said, its route already gone. */
-	ended?: (sessionId: string, why: ChildEnding) => void;
+	/**
+	 * A child's conversation ended, as it said, its route already gone;
+	 * `busy` when the last state its child said of it was busy, as one
+	 * killed mid-turn leaves it.
+	 */
+	ended?: (sessionId: string, why: ChildEnding, busy: boolean) => void;
+	/** A child said its conversation is not busy, its turn over. */
+	atRest?: (sessionId: string) => void;
 	/**
 	 * A resume's child was given up and stopped, as a bounded one is at
 	 * its listen or answer time, before any ending could be heard: its
@@ -1473,8 +1479,10 @@ export function childSupervisor(options: {
 								kept = first.catch(() => undefined);
 							},
 							state: (conversation, heap) => {
-								if (conversation.sessionId === current)
-									routes.update(conversation, heap);
+								if (conversation.sessionId !== current) return;
+								routes.update(conversation, heap);
+								if (conversation.state !== "busy")
+									options.atRest?.(conversation.sessionId);
 							},
 							became(previousId, conversation, entry) {
 								const next = conversation.sessionId;
@@ -1536,6 +1544,11 @@ export function childSupervisor(options: {
 								over = true;
 								// A forsaken child is left already, and said nothing true.
 								if (forsaken) return;
+								// Read before its route goes: the last state this child said.
+								const busy =
+									current !== undefined &&
+									routes.routeOf(current)?.socket === slot.socket &&
+									routes.child(current)?.conversation.state === "busy";
 								if (current) dropOwn(current);
 								// One refused as it ended may run on: it is stopped.
 								const left = leave(
@@ -1554,7 +1567,7 @@ export function childSupervisor(options: {
 								options.say?.(
 									`${sessionAddress(current)} (${current}): its process ended, ${why}`,
 								);
-								options.ended?.(current, why);
+								options.ended?.(current, why, busy);
 							},
 							misread: (error) =>
 								options.report(new Error(`${slot.unit} ${error.message}`)),

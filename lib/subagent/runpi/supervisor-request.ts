@@ -266,8 +266,8 @@ export async function told(
 }
 
 /**
- * The room words for a reviewer asked to run on a room, or why it
- * runs here instead, read now so the supervisor is told one or the
+ * The room words for a reviewer asked to run on a room, or why no room
+ * can take it, read now so the supervisor is told one or the
  * other and never has to read the brief itself.
  */
 async function roomFor(
@@ -339,7 +339,7 @@ async function buildRequest(
 		readonly cwd: string;
 		/** Where it runs first, when it goes to a room. */
 		readonly room?: { binary: string; args: readonly string[] };
-		/** Why a reviewer asked to run on a room runs here. */
+		/** Why no room can take a reviewer asked to run on one, which then fails. */
 		readonly roomStays?: string;
 		/** Nobody is waiting, so the parent's death means nothing. */
 		readonly orphaned?: boolean;

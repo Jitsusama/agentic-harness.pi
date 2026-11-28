@@ -1,8 +1,9 @@
 /**
  * A reviewer asked to run on a room, on the real supervisor with a
  * stand-in for the node's `mycelium run`: what the room streamed is
- * the run, its recorded findings come back as the journal, and only a
- * room that said nothing at all hands the reviewer back to run here.
+ * the run, its recorded findings come back as the journal, and a room
+ * that said nothing at all fails the run rather than running it here,
+ * since its round skipped this machine's bars.
  */
 
 import { chmod, readFile, writeFile } from "node:fs/promises";
@@ -149,68 +150,33 @@ describe("a reviewer asked to run on a room", () => {
 		expect(env.HOME).toBe(process.env.HOME);
 	});
 
-	it("runs here when no room took it and it said nothing", async () => {
+	it("fails, never running here, when no room took it and it said nothing", async () => {
 		const { result, here } = await roomRun([
 			`process.stderr.write("no machine has a slot");`,
 			"process.exit(255);",
 		]);
 
-		expectRan(result);
-		expect(here, "it ran here").toBe(true);
-		expect(result.finalAssistantText).toBe("here");
+		expect(here, "nothing ran here").toBe(false);
+		expect(result.state).toBe("failed");
 		expect(result.warnings?.join(" ")).toMatch(
-			/No room ran this reviewer \(it ended 255: no machine has a slot\)/,
+			/No room ran this reviewer \(it ended 255: no machine has a slot\), and it doesn't run here: its round skipped this machine's bars/,
 		);
 	});
 
-	it("runs here when the room ended cleanly having said nothing", async () => {
+	it("fails, never running here, when the room ended cleanly having said nothing", async () => {
 		const { result, here } = await roomRun(["process.exit(0);"]);
 
-		expectRan(result);
-		expect(here, "it ran here").toBe(true);
+		expect(here, "nothing ran here").toBe(false);
+		expect(result.state).toBe("failed");
 		expect(result.warnings?.join(" ")).toMatch(/it ended 0/);
 	});
 
-	it("runs here when the node's command isn't there to start", async () => {
+	it("fails, never running here, when the node's command isn't there to start", async () => {
 		const { result, here } = await roomRun([], {}, "/nowhere/mycelium");
 
-		expectRan(result);
-		expect(here, "it ran here").toBe(true);
+		expect(here, "nothing ran here").toBe(false);
+		expect(result.state).toBe("failed");
 		expect(result.warnings?.join(" ")).toMatch(/No room ran this reviewer/);
-	});
-
-	it("stops a reviewer run here by the wall clock counted from the run's start, not the fallback's", async () => {
-		// The room is slow to say no; the reviewer here then never ends.
-		// Margins of three seconds each side, for node's starts under load.
-		const roomSaysNo = 3000;
-		const timeoutMs = 9000;
-		const { result, starts } = await roomRun(
-			[`setTimeout(() => process.exit(255), ${roomSaysNo});`],
-			{ timeoutMs },
-			undefined,
-			["setInterval(() => {}, 1000);"],
-		);
-		const ended = Date.now();
-
-		expect(result.state).toBe("timeout");
-		expect(starts).toHaveLength(1);
-		// From its start here, a clock restarted at the fallback would give
-		// it the whole of timeoutMs, past the parent's backstop.
-		expect(ended - (starts[0] ?? 0)).toBeLessThan(timeoutMs - 3000);
-	});
-
-	it("starts nothing here once the soft deadline has passed while the room said no", async () => {
-		// Its soft deadline at 6 s, the room's no at 7 s, the wall at 10 s.
-		const { result, starts } = await roomRun(
-			["setTimeout(() => process.exit(255), 7000);"],
-			{ timeoutMs: 10_000 },
-			undefined,
-			answered("here"),
-			{ wrapUpReserveMs: 4000 },
-		);
-
-		expect(starts, "nothing ran here").toHaveLength(0);
-		expect(result.state).toBe("soft-deadline");
 	});
 
 	it("ends idle when our clock stops a silent room, and never runs here after", async () => {
@@ -232,7 +198,7 @@ describe("a reviewer asked to run on a room", () => {
 		expect(result.exitCode).not.toBe(0);
 	});
 
-	it("runs here from the start when the entry would refuse its words", async () => {
+	it("fails from the start, never running here, when the entry would refuse its words", async () => {
 		const stateDir = await tempStateDir();
 		const childPath = await script(
 			join(stateDir, "child.mjs"),
@@ -258,10 +224,10 @@ describe("a reviewer asked to run on a room", () => {
 			},
 		});
 
-		expectRan(result);
-		expect(result.finalAssistantText).toBe("here");
+		expect(result.state).toBe("failed");
+		expect(result.finalAssistantText).not.toBe("here");
 		expect(result.warnings?.join(" ")).toMatch(
-			/ran here, not on a room: it names more than one file to read/,
+			/No room could take this reviewer \(it names more than one file to read\), and it doesn't run here/,
 		);
 	});
 });

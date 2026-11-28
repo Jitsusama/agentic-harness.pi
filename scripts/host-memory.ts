@@ -17,6 +17,14 @@
  * the id first, then those whose file says they hold it, then the rest,
  * until one says it runs that conversation. One that doesn't answer is
  * said and the next is read; exits 1 when any wasn't read, 0 otherwise.
+ *
+ *   node scripts/host-memory.ts --snapshot KIND:SESSION
+ *
+ * writes a heap snapshot of the process that conversation runs in, asked
+ * of its host, which passes it to the child, and says where it went. The
+ * write stops that process's thread for seconds, so a busy conversation
+ * refuses it. The file holds what the process holds, secrets among them,
+ * so it is written for its owner alone; remove it once read.
  */
 
 import { randomUUID } from "node:crypto";
@@ -31,6 +39,7 @@ import { slotHolds, slotOf, slotsIn } from "../host/service/child-units.ts";
 import { controlRequest } from "../host/service/client.ts";
 import {
 	type MemoryAnswer,
+	parseHeapSnapshotResult,
 	parseMemoryResult,
 } from "../host/service/protocol.ts";
 import { isSessionId } from "../lib/core/session/roster.ts";
@@ -175,6 +184,25 @@ export async function childRunning(
 	return undefined;
 }
 
+/** A heap snapshot's answer as a line: where it went, its size and its pause. */
+export function describeSnapshot(
+	answer: ReturnType<typeof parseHeapSnapshotResult>,
+): string {
+	return `${answer.sessionId}: a heap snapshot of ${mib(answer.bytes)}, written in ${answer.tookMs} ms, to ${printable(answer.file)}`;
+}
+
+/** The heap snapshot the host on `socket` has written of `sessionId`'s process, or why not. */
+async function snapshotAt(socket: string, sessionId: string): Promise<string> {
+	const reply = await controlRequest(socket, {
+		v: 1,
+		id: randomUUID(),
+		op: "heap-snapshot",
+		sessionId,
+	});
+	if (!reply.ok) throw new Error(`it refused: ${reply.error.message}`);
+	return describeSnapshot(parseHeapSnapshotResult(reply.result));
+}
+
 /** What the process on `socket` answers for its memory, or why not. */
 async function memoryAt(socket: string): Promise<MemoryAnswer> {
 	const reply = await controlRequest(socket, {
@@ -214,7 +242,31 @@ async function readOne(
 	return describeChild(`${kind} child ${session}`, answer);
 }
 
-if (import.meta.main) {
+/** Write a snapshot for the conversation `word` names, saying where; exits 1 where none was. */
+async function snapshotOne(words: readonly string[]): Promise<void> {
+	const [word, ...rest] = words;
+	const one = word === undefined || rest.length > 0 ? undefined : askedOf(word);
+	if (one?.session === undefined)
+		throw new Error(
+			"Usage: node scripts/host-memory.ts --snapshot KIND:SESSION",
+		);
+	const runtimeDir = loginRuntimeDir();
+	if (!runtimeDir)
+		throw new Error(
+			"No runtime folder: neither AGENTS_RUNTIME_DIR nor XDG_RUNTIME_DIR is set, and on a Mac getconf named no cache folder",
+		);
+	const socket = hostSocketPath(hostRealm(process.env), one.kind, runtimeDir);
+	try {
+		console.log(await snapshotAt(socket, one.session));
+	} catch (error) {
+		console.log(`${one.kind}:${one.session}: no snapshot: ${why(error)}`);
+		process.exitCode = 1;
+	}
+}
+
+if (import.meta.main && process.argv[2] === "--snapshot") {
+	await snapshotOne(process.argv.slice(3));
+} else if (import.meta.main) {
 	const asked = process.argv.slice(2);
 	const reads: Asked[] =
 		asked.length > 0 ? [] : [{ kind: "attended" }, { kind: "background" }];

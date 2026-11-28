@@ -373,7 +373,7 @@ export function deps(
 	// belongs to the attempt that produced it.
 	billTo?: string,
 	// The room each reviewer runs on first, when the round has one
-	// (ask-room.ts); each comes back here when the room gives nothing.
+	// (ask-room.ts); one the room gives nothing fails, never running here.
 	room?: RoomAsk,
 ) {
 	const findings = createFindingStore(findingDir());

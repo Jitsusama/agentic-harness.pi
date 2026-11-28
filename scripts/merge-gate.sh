@@ -35,6 +35,8 @@ fi
 
 sha=${1:?Name the commit to merge: merge-gate.sh SHA}
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=gate-objects.sh
+source "$here/gate-objects.sh"
 biome="$PWD/node_modules/.bin/biome"
 vitest="$PWD/node_modules/.bin/vitest"
 # The rules whose counts only fall, each with its shrink-only list and how
@@ -56,16 +58,17 @@ helpers=(tests/package/code/package-files.ts)
 # folders, wherever on the path they sit: .git, .cache, .turbo and more
 # (found by trying Biome 2.5.15, 27 November). There it judges every file
 # by the root config alone, which pnpm lint in the checkout doesn't. A pi
-# session's TMPDIR is under ~/.cache, so each place is tried with a copy
-# only a nested config faults, rather than against a list Biome may grow,
-# and the gate refuses where Biome reads none.
+# session's TMPDIR is under ~/.cache, and a state folder could be too, so
+# the place the copies go is tried with one only a nested config faults,
+# rather than against a list Biome may grow, and the gate refuses where
+# Biome reads none.
 # Biome fails for more than a fault (a config it can't load, a crash), and
 # where it processes no file at all the real runs below, which pass on
-# unmatched files, would judge nothing. So each place must show both: a
+# unmatched files, would judge nothing. So the place must show both: a
 # file the root config faults is named as faulted, and so is one only
 # lib/'s config faults. Each run is the real runs' own, flags and all.
 # A Biome that faults not even the root's file judges nothing anywhere,
-# which no other folder mends, so it's told apart.
+# so it's told apart.
 faults() {
   local said
   if said=$(cd "$1" && "$biome" check --vcs-enabled=false --no-errors-on-unmatched \
@@ -90,52 +93,44 @@ reads_nested() {
   rm -rf "$probe"
   return "$read"
 }
-# The trap is set before the first copy, so an interrupt mid-probe leaves
-# none behind, and /tmp is tried once, though TMPDIR names it too.
+# The copies are made beside the gate's object store, not under TMPDIR:
+# a session's TMPDIR is its quest's, which every fenced session on that
+# quest can write, so one could change a file or the rules' config
+# between the gate writing it and Biome or vitest reading it. The trap is
+# set before the first copy, so an interrupt mid-probe leaves none behind.
 scratch=""
 trap 'rm -rf "$scratch"' EXIT
-rooms=("${TMPDIR:-/tmp}")
-if [[ ! ${TMPDIR:-/tmp} -ef /tmp ]]; then rooms+=(/tmp); fi
-written=0 judged=0
-for room in "${rooms[@]}"; do
-  [[ -d $room ]] || continue
-  scratch=$(mktemp -d "$room/merge-gate.XXXXXX" 2> /dev/null) || {
-    scratch=""
-    continue
-  }
-  written=1
-  # A checkout with no Biome is refused below, saying so.
-  if [[ ! -x $biome ]]; then break; fi
-  probed=0
-  reads_nested "$scratch" || probed=$?
-  if [[ $probed == 0 ]]; then break; fi
-  if [[ $probed == 1 ]]; then judged=1; fi
-  rm -rf "$scratch"
-  scratch=""
-done
-if [[ -z $scratch ]]; then
-  if [[ $written == 0 ]]; then
-    echo "merge-gate: no folder could be made under ${rooms[*]}, so nothing can be copied out to judge." >&2
-    echo "Set TMPDIR to a folder this account can write, then merge again." >&2
-  elif [[ $judged == 0 ]]; then
-    echo "merge-gate: Biome faulted not even a file it should in a copy under ${rooms[*]}, so it can't be trusted to judge any." >&2
-    echo "Check that $biome runs here, as security software can stop it while it exits 0, then merge again." >&2
-  else
-    echo "merge-gate: Biome judges no file by its nested config in a copy under ${rooms[*]}, so it can't judge files as pnpm lint would." >&2
-    echo "Set TMPDIR to a folder outside any .git or .cache folder, then merge again." >&2
-  fi
+# What mkdir or mktemp says goes out with the refusal, since a full disk
+# or a missing folder is cleared another way than the fence is. It goes
+# through shown, the room's name too, since XDG_STATE_HOME may hold any
+# character.
+room=$gate_home/scratch
+if ! made=$( (umask 077 && mkdir -p "$room") 2>&1) ||
+  ! made=$(mktemp -d "$room/merge-gate.XXXXXX" 2>&1); then
+  {
+    echo "$made"
+    echo "merge-gate: no folder could be made under $room, so nothing can be copied out to judge."
+    echo "Run it where pi's state folder can be written, outside the agent fence, as review_offer merge does."
+  } | shown >&2
   exit 1
 fi
+scratch=$made
+# A checkout with no Biome is refused below, saying so.
+if [[ -x $biome ]]; then
+  probed=0
+  reads_nested "$scratch" || probed=$?
+  if [[ $probed == 2 ]]; then
+    echo "merge-gate: Biome faulted not even a file it should in a copy under $room, so it can't be trusted to judge any." >&2
+    echo "Check that $biome runs here, as security software can stop it while it exits 0, then merge again." >&2
+    exit 1
+  elif [[ $probed != 0 ]]; then
+    echo "merge-gate: Biome judges no file by its nested config in a copy under $room, so it can't judge files as pnpm lint would." >&2
+    echo "Set XDG_STATE_HOME to a folder outside any .git or .cache folder and outside every folder the agent fence lets sessions write, then merge again." >&2
+    exit 1
+  fi
+fi
 
-# Main is fetched to its remote branch by name, since the checkout's own
-# refspec might leave origin/main where it was. No hook runs as it lands,
-# so none the checkout holds can move the ref after. The checkout's remote
-# and the GIT_ variables the gate was given still reach the fetch: they
-# find the repository and sign in, they're the merging person's and not
-# the head's, and the fence keeps the checkout's config from a session.
-fetching() { git -c core.hooksPath=/dev/null fetch -q origin "$@"; }
-fetching +refs/heads/main:refs/remotes/origin/main
-if ! git cat-file -e "$sha^{commit}" 2> /dev/null; then fetching "$sha"; fi
+gate_objects merge-gate "$sha"
 
 # GIT_ATTR_SOURCE, which keeps the tree's attributes out of what's judged
 # below, came in git 2.42, and an older git would ignore it unsaid.
@@ -150,36 +145,22 @@ if ((10#${BASH_REMATCH[1]} < 2 || (10#${BASH_REMATCH[1]} == 2 && 10#${BASH_REMAT
   exit 1
 fi
 # What's judged is read and merged in a repository of the gate's own, made
-# from no template and borrowing this checkout's objects, so nothing the
+# from no template and borrowing the gate's hashed objects, so nothing the
 # checkout or the person set can shape it. A merge driver, even one named
 # for git's own text merge, replaces the built-in merge wherever it's set,
 # and no setting turns the checkout's info/attributes off, so pinning each
 # setting would always leave one more. Here no config but the new
 # repository's is read, the global and system files shut out, and every
 # GIT_ variable the gate was given (a config, a graft file, a replace base,
-# a folder) unset rather than a named few, since each could reach it. Only
-# commits are named, by their ids, and the checkout's refs, replacements
-# among them, aren't there, so every commit's contents are read here. The
-# checkout's commit-graph comes with its objects, and git would take each
-# commit's parents from it unchecked, so a planted one could make the head
-# main's parent; parents are read from the commits instead. The rules run
-# under the same, so none of their own git reaches the checkout.
+# a folder) unset rather than a named few, as gate-objects.sh says. Only
+# commits are named, by their ids, and no ref, replacement or graft is
+# there, so every commit's contents are read here. Parents are read from
+# the commits, never a commit-graph, since a graph is never checked
+# against the commits it names. The rules run under the same, so none of
+# their own git reaches the checkout.
 judging="$scratch/judging"
-inherited=()
-# Bash's own list of the names, since compgen is missing from a bash built
-# without completion, and the sweep would then shut out nothing.
-for name in "${!GIT_@}"; do inherited+=(-u "$name"); done
-# Git with none of that, and only the variables given before the command.
-clean() {
-  env ${inherited[@]+"${inherited[@]}"} GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 "$@"
-}
 clean git init -q --template= "$judging"
-objects=$(git rev-parse --path-format=absolute --git-common-dir)/objects
-echo "$objects" > "$judging/.git/objects/info/alternates"
-# Named past any replacement, which could make either another commit, and
-# main by its full name, which no tag or branch of the checkout's outranks.
-head_id=$(git --no-replace-objects rev-parse --verify "$sha^{commit}")
-main_id=$(git --no-replace-objects rev-parse --verify "refs/remotes/origin/main^{commit}")
+echo "$gate_store/objects" > "$judging/.git/objects/info/alternates"
 
 # The files judged come from an index of the gate's own, not git archive,
 # which leaves out whatever .gitattributes marks export-ignore and so would
@@ -264,6 +245,21 @@ is_config() {
   [[ ${1##*/} == biome.json || ${1##*/} == biome.jsonc ||
     ${1##*/} == .biome.json || ${1##*/} == .biome.jsonc ]]
 }
+# Whether Biome's output ($1) faults one of the configs after it by a rule
+# lint:fix mends: its formatting, a lint or an assist. A config that won't
+# load is named by its absolute path, under deserialize, so it never
+# matches here.
+config_faulted() {
+  local said=$1 line file
+  shift
+  while IFS= read -r line; do
+    for file in "$@"; do
+      if [[ $line == "$file format "* || $line == "$file:"*" lint/"* ||
+        $line == "$file:"*" assist/"* ]]; then return 0; fi
+    done
+  done <<< "$said"
+  return 1
+}
 # Whether the change touches a config, one it removes included, since
 # removing a nested config loosens its folder as surely as editing it. A
 # GritQL plugin counts too: a config loads its rules, so editing one
@@ -272,20 +268,56 @@ unattributed diff -z --name-only "$base" "$head_id" -- "${config_names[@]}" '*.g
   > "$scratch/changed-configs"
 config_changed=0
 if [[ -s $scratch/changed-configs ]]; then config_changed=1; fi
-# The changed files that aren't configs, which a plugin-only change leaves empty.
+# The changed files that aren't configs, which a plugin-only change leaves
+# empty, and the configs the run checks.
 others=()
-if [[ ${#files[@]} -gt 0 ]]; then
+configs=()
+for file in ${files[@]+"${files[@]}"}; do
+  if is_config "$file"; then configs+=("$file"); else others+=("$file"); fi
+done
+gate_index ls-files -z -- "${config_names[@]}" > "$scratch/head-configs"
+mapfile -d '' -t head_configs < "$scratch/head-configs"
+# A change to a config or a plugin has Biome load every config the head
+# holds, and so every plugin they name, by checking each config too: a
+# plugin is no file it judges, so a plugin that won't compile would
+# otherwise pass unloaded, and fail every lint after it on main.
+judged=(${files[@]+"${files[@]}"})
+# Whether $1 is among the paths after it, each compared whole.
+among() {
+  local want=$1 path
+  shift
+  for path in "$@"; do
+    if [[ $path == "$want" ]]; then return 0; fi
+  done
+  return 1
+}
+if [[ $config_changed == 1 ]]; then
+  for file in ${head_configs[@]+"${head_configs[@]}"}; do
+    if ! among "$file" ${configs[@]+"${configs[@]}"}; then
+      judged+=("$file")
+      configs+=("$file")
+    fi
+  done
+fi
+# Biome's output is matched to the files it judges a line at a time, so a
+# name holding a newline would match no line, and a fault in it would
+# read as a run that couldn't judge. Such a name is refused here instead,
+# quoted as printf %q quotes it, so its newline shows as \n, not a break.
+for file in ${judged[@]+"${judged[@]}"}; do
+  if [[ $file == *$'\n'* ]]; then
+    echo "merge-gate: $sha has Biome judge a file whose name holds a newline, which its output can't be matched to:" >&2
+    printf '  %q\n' "$file" | shown >&2
+    echo "Rename it without the newline in a checkout of the branch, push, and merge the new head." >&2
+    exit 1
+  fi
+done
+if [[ ${#judged[@]} -gt 0 ]]; then
   tree="$scratch/changed"
   mkdir "$tree"
   # Every config the head holds goes out, so its run reads each folder's as
   # pnpm lint at the head would. Each goes out once: named again as a
   # changed file, checkout-index would find the copy it just wrote and
   # refuse the whole checkout.
-  gate_index ls-files -z -- "${config_names[@]}" > "$scratch/head-configs"
-  mapfile -d '' -t head_configs < "$scratch/head-configs"
-  for file in "${files[@]}"; do
-    is_config "$file" || others+=("$file")
-  done
   gate_index checkout-index --prefix="$tree/" -- \
     ${head_configs[@]+"${head_configs[@]}"} ${others[@]+"${others[@]}"}
   # Biome loads a config's GritQL plugins before it judges anything, so
@@ -300,24 +332,26 @@ if [[ ${#files[@]} -gt 0 ]]; then
   set +e
   # The paths follow --, so a file named like an option is read as a file.
   said=$(cd "$tree" && "$biome" check --vcs-enabled=false --no-errors-on-unmatched --colors=off \
-    -- "${files[@]}" 2>&1)
+    -- "${judged[@]}" 2>&1)
   checked=$?
   set -e
   if [[ $checked != 0 ]]; then
-    echo "$said" >&2
-    # Biome fails the same way where the head's config won't load, which
-    # lint:fix can't mend, and names the config as it says why; so only a
-    # file that isn't a config, named, is a fault lint:fix can mend.
-    if names_any "$said" ${others[@]+"${others[@]}"}; then
-      echo "merge-gate: Biome faults ${#files[@]} changed file(s) at $sha, as pnpm lint would." >&2
+    shown <<< "$said" >&2
+    # Biome fails the same way where the head's config or a plugin won't
+    # load, which lint:fix can't mend, and names the config as it says
+    # why; so only a file that isn't a config, named, or a config's own
+    # formatting or lint, is a fault lint:fix can mend.
+    if names_any "$said" ${others[@]+"${others[@]}"} ||
+      config_faulted "$said" ${configs[@]+"${configs[@]}"}; then
+      echo "merge-gate: Biome faults ${#judged[@]} file(s) at $sha, as pnpm lint would." >&2
       echo "Run pnpm lint:fix in a checkout of the branch, commit what it changes, push, and merge the new head." >&2
     else
-      echo "merge-gate: Biome couldn't judge the ${#files[@]} file(s) $sha changes by its own config; above says why." >&2
+      echo "merge-gate: Biome couldn't judge the ${#judged[@]} file(s) at $sha by its own config and plugins; above says why." >&2
       echo "Fix what it names in a checkout of the branch, run pnpm lint, push, and merge the new head." >&2
     fi
     exit 1
   fi
-  echo "merge-gate: Biome passes the ${#files[@]} file(s) $sha changes"
+  echo "merge-gate: Biome passes the ${#judged[@]} file(s) it judges at $sha"
 
   # A head judges itself by its own config, as pnpm lint at the head would,
   # so a change that loosens a rule passes its own check. It may mean to,
@@ -349,23 +383,25 @@ if [[ ${#files[@]} -gt 0 ]]; then
       # only a run that faults a changed file is called a loosening.
       if names_any "$(< "$scratch/before.said")" "${others[@]}"; then
         echo "merge-gate: $sha changes Biome's config, and main's config faults what it lets through:" >&2
-        cat "$scratch/before.said" >&2
+        shown < "$scratch/before.said" >&2
         echo "merge-gate: so the change loosens a rule for these files, or main tightened one since the cut; that passes, said here." >&2
       else
         echo "merge-gate: $sha changes Biome's config, and Biome couldn't judge its files by main's config:" >&2
-        cat "$scratch/before.said" >&2
+        shown < "$scratch/before.said" >&2
         echo "merge-gate: so what the change lets through goes unnamed; that passes, said here." >&2
       fi
     fi
   fi
 fi
-# A change to the config or a plugin alone leaves every file it judges as
-# main has it, and main's config passes those, so nothing it lets through
-# can be named yet: a later change brings that, and passes by the rule this
-# one loosened. So the config it changes is named, for whoever merges.
+# A change to the config or a plugin alone leaves every file the gate
+# judges as main has it, and main's config passes those, so nothing it
+# lets through can be named yet: a later change brings that, and passes by
+# the rule this one loosened. So the config it changes is named, for
+# whoever merges. pnpm lint judges more kinds of file than the gate does,
+# so the notice speaks only for the gate's.
 if [[ $config_changed == 1 && ${#others[@]} -eq 0 ]]; then
   mapfile -d '' -t configs_changed < "$scratch/changed-configs"
-  echo "merge-gate: $sha changes Biome's config or plugins and no file they judge, so nothing a rule it loosens lets through can be named yet; that passes, said here:" >&2
+  echo "merge-gate: $sha changes Biome's config or plugins, which load, and no file the gate judges, so nothing a rule it loosens lets through can be named yet; that passes, said here:" >&2
   printf '  %q\n' "${configs_changed[@]}" >&2
 fi
 
@@ -402,12 +438,12 @@ merging=$?
 set -e
 if [[ $merging == 1 ]]; then
   # Past the tree's id, each file that conflicts, quoted as git quotes it.
-  if [[ $merged == *$'\n'* ]]; then echo "${merged#*$'\n'}" >&2; fi
+  if [[ $merged == *$'\n'* ]]; then shown <<< "${merged#*$'\n'}" >&2; fi
   echo "merge-gate: $sha doesn't merge cleanly with main, so what it would land can't be judged." >&2
   echo "Rebase the branch on origin/main, push, and merge the new head." >&2
   exit 1
 elif [[ $merging != 0 ]]; then
-  cat "$scratch/merging" >&2
+  shown < "$scratch/merging" >&2
   echo "merge-gate: git can't write the tree $sha's merge with main would make; above says why." >&2
   exit 1
 fi
@@ -469,7 +505,7 @@ for each in "${rules[@]}"; do
 done
 raised=$(sed '/^$/d' <<< "$raised")
 if [[ -n $raised ]]; then
-  echo "$raised" >&2
+  shown <<< "$raised" >&2
   echo "merge-gate: $sha raises a list that only shrinks, above main's." >&2
   echo "Fix the code the line names rather than listing it, push, and merge the new head." >&2
   exit 1
@@ -491,7 +527,7 @@ said=$(clean "$vitest" run --config "$config" --root "$whole" --color=false 2>&1
 counted=$?
 set -e
 if [[ $counted != 0 ]]; then
-  echo "$said" >&2
+  shown <<< "$said" >&2
   echo "merge-gate: main's count rules refuse $sha merged with main, or couldn't run on it; above says which." >&2
   echo "Do what it says in a checkout of the branch rebased on origin/main, run pnpm exec vitest run ${counts[*]}, push, and merge the new head." >&2
   echo "Where main alone fails them, main is fixed first." >&2

@@ -64,6 +64,9 @@ export function leftRunning(reply: ControlReply): string | undefined {
 	return leftRunningBy.get(reply);
 }
 
+/** The code a reply carries when its child didn't answer. */
+const CHILD_UNREACHABLE = "child_unreachable";
+
 /** The answer to `id` when the child can't give one. */
 export function childUnreachable(id: string, message?: string): ControlReply {
 	const reply: ControlReply = {
@@ -71,7 +74,7 @@ export function childUnreachable(id: string, message?: string): ControlReply {
 		id,
 		ok: false,
 		error: {
-			code: "child_unreachable",
+			code: CHILD_UNREACHABLE,
 			message:
 				message ?? "The process running this conversation does not answer",
 		},

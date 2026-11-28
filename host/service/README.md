@@ -295,6 +295,19 @@ input pipeline or screen. No unit or running host is installed yet.
   so the quiet collection waits 30 s after one.
 - protocol.ts: strict v1 control requests, replies and viewer input.
   A close or release may name its caller (`by`), for the journal.
+- heap-snapshot.ts: `heap-snapshot`, which writes a V8 heap snapshot of
+  the process one conversation runs in, so what a long-lived child
+  holds can be named by what retains it; a child runs with SIGUSR1 off,
+  so no inspector can read it instead. The host passes the request to
+  the child that runs the conversation, as it passes any request naming
+  one. The write stops that thread for seconds, so a busy conversation
+  refuses it, and so does one on the host's own thread, since there it
+  would stop every other conversation and the watchdog's pings too.
+  The journal says each snapshot's size and pause. The file
+  holds every string the process does, secrets among them, so it is
+  made owner-only before V8 writes into it, in an owner-only folder
+  under the host service's state, and kept until its asker removes it.
+  `node scripts/host-memory.ts --snapshot KIND:SESSION` asks for one.
 - framing.ts: bounded UTF-8 JSON lines; only LF separates records.
 - dispatch.ts: validates before engine calls and binds targeted calls
   through core/session's withSession; forwards failures to the host journal.
@@ -366,13 +379,20 @@ input pipeline or screen. No unit or running host is installed yet.
   bar a council's round waits on (lib/internal/machine/room.ts
   `cpuShort`). While it isn't, it looks again after five minutes and
   its share again, so the children held go out apart as the CPU falls.
-  After an hour of waiting for room (`ROLL_WAITS_FOR_ROOM_AT_MOST_MS`)
-  it rolls anyway and says so, since a child left on stale code for
-  hours is what the roll exists to end. A look that can't tell, since
-  the install's `current` can't be read or names a version not done
-  installing, keeps the wait; one finding the code current again
-  forgets it, saying so.
-  The hour and the wait run on a clock a wall clock's steps don't move.
+  At its first look past an hour of waiting for room
+  (`ROLL_WAITS_FOR_ROOM_AT_MOST_MS`), so up to a look and a share
+  later, it rolls anyway and says so, since a child left on stale code
+  for hours is what the roll exists to end. A look that can't tell,
+  since the install's `current` can't be read or names a version not
+  done installing, keeps the wait and its spread, and holds the roll
+  for as long as it can't tell, since a fresh child would start on an
+  install nobody can read; it says so once for each doubt until a look
+  answers. One finding the code current again forgets the wait, saying
+  so. The child's roll asks its version's install itself
+  (`ChildRoll.version`), so its wiring can't hand it an ask that
+  answers nothing for not knowing.
+  The hour and the wait run on a clock a wall clock's steps don't move,
+  and may not count the time a machine sleeps (untested).
 - child-watch.ts: watching one child on a connection kept open: its
   first answer names who it is and its conversation, then a line for
   each state, each new id the conversation takes, and its ending. A
@@ -470,7 +490,31 @@ input pipeline or screen. No unit or running host is installed yet.
   runs for a parked conversation. That needs a child's park marker to
   name the host's own wake file, as `parked.wakeFile` gives it under
   the host's key; one naming another is woken by nothing until a
-  window attaches.
+  window attaches. One whose child failed while its last state was
+  busy, as a child killed mid-turn leaves it, is then woken at once,
+  as a message wakes it, so the turn carries on as a host's restart
+  carries one on, rather than waiting for a window. It is woken so at
+  most once in `WOKEN_AGAIN_AFTER_MS` (10 minutes), and at most
+  `WAKES_A_DAY` (3) times in a day of one host's run, as the host
+  keeps the count in memory, so a turn that kills its child each time
+  asks the model again only so often; past either, it rests, and the
+  journal says so. One whose child dies as its close, release or
+  abort is asked, whether a window asked it through the server or the
+  host asked it itself, rests too: until `END_ASKED_HOLDS_MS` (90
+  seconds) after the child agrees, and, when it can't be reached or
+  its asker hangs up first, until the child ends; an abort's hold
+  ends sooner, once the child says its turn is over, so a death in a
+  later turn is its own. A child stopped with SIGTERM
+  (`systemctl --user stop` on its unit) parks, and stays parked; only
+  one killed outright (SIGKILL, the kernel's out-of-memory killer) or
+  crashed mid-turn is woken. A child whose thread is held when the
+  stop comes can't park, and systemd kills it outright at its stop
+  timeout, so it is woken too. To stop a busy one for good, close it,
+  or stop its unit and then stop the woken one again, which the
+  spacing then leaves resting; never `kill -9` it. A wake that
+  doesn't land is said, counts toward neither limit, and is reported
+  too unless the host is stopping, which refuses every wake as it
+  should.
 - client.ts: one-shot control requests with strict reply correlation and
   a bounded timeout. It never retries a possibly committed operation.
 - join.ts: what a window's pi hands its window to as it moves in place

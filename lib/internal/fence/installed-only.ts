@@ -24,13 +24,15 @@
 import { accessSync, constants, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
 	installRoot,
 	packageName,
 	piPackageSettings,
 	settingsExtensions,
 } from "../reload/settings.ts";
+import { packageRoot } from "./package-root.ts";
+
+export { packageRoot } from "./package-root.ts";
 
 /** Where pi's packages are installed, under the home folder. */
 const PACKAGES = join(".local", "share", "pi-packages");
@@ -171,16 +173,6 @@ export function heldPackRefusal(
 	return unchangeable(real, changeable)
 		? undefined
 		: `${real} is one this account could change`;
-}
-
-/** This package's own folder, followed, as this process loaded it. */
-export function packageRoot(): string {
-	const own = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-	try {
-		return realpathSync(own);
-	} catch {
-		return own;
-	}
 }
 
 /**

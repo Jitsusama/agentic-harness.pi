@@ -29,13 +29,22 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { isRecord } from "../../../lib/internal/record.ts";
 import { saidAfter } from "./support/held-pi.ts";
-import { type HostProcess, startHost } from "./support/host-process.ts";
 import {
+	HOST_WAIT_MS,
+	type HostProcess,
+	LISTEN_WAIT_MS,
+	OPEN_WAIT_MS,
+	startHost,
+} from "./support/host-process.ts";
+import {
+	answeredLast,
+	entriesOf,
+	erredLast,
 	onHostPi,
 	ROUND_TRIP_MS,
 	textOf,
-	turnEnded,
 	untilAnswered,
 } from "./support/hosted-case.ts";
 import {
@@ -60,6 +69,51 @@ const CARRIED_MS = RUNS_MS + ROUND_TRIP_MS;
  */
 const RECORD_MS = 5_000;
 
+/**
+ * The hosts' own bounded waits in each case: two hosts listening and the
+ * first's open. On a loaded lender an open took 67 s (h2353c), so leaving
+ * these out let vitest's timeout win before a wait's own failure.
+ */
+const HOSTS_MS = 2 * LISTEN_WAIT_MS + OPEN_WAIT_MS;
+
+/**
+ * How long a host's own restart may take to go, a bound for a restart that
+ * hangs rather than the machine's limit: systemd kills a stop that
+ * outruns 60 s, but a loaded lender runs a stop slower than the machine,
+ * as its opens took 67 s (h2353c), so this leaves it half as long again.
+ */
+const RESTART_MS = 90_000;
+
+/**
+ * Restart `host` as its own restart does, and wait for it to go cleanly,
+ * bounded: its exit isn't, and a hang would otherwise end in vitest's
+ * timeout. A stop that throws exits other than 0, which the next host's
+ * resume could otherwise hide, so its code is held as the other host
+ * cases hold a restart's.
+ */
+async function restarted(host: HostProcess): Promise<void> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const late = new Promise<never>((_, fail) => {
+		timer = setTimeout(
+			() =>
+				fail(
+					new Error(
+						`the host didn't go within ${RESTART_MS} ms of its restart`,
+					),
+				),
+			RESTART_MS,
+		);
+	});
+	try {
+		expect(
+			await Promise.race([host.restart(), late]),
+			"the host stops cleanly on its restart",
+		).toBe(0);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
 let sealed: Seal;
 let hosts: HostProcess[] = [];
 beforeEach(async () => {
@@ -71,7 +125,11 @@ afterEach(async () => {
 	await sealed.dispose();
 });
 
-/** What every host started here wrote, for a failure. */
+/**
+ * What every host started here wrote, for a failure. Each case runs in
+ * onHostPi, which adds it to whatever fails, so the failures below leave
+ * it out rather than print every host's stderr twice.
+ */
 function said(): string {
 	return hosts
 		.map((host, at) => `Host ${at + 1} wrote:\n${host.errors()}`)
@@ -116,6 +174,121 @@ function alive(pid: number): boolean {
 	return existsSync(`/proc/${pid}`);
 }
 
+/** How many times the conversation's model called bash to run CARRYING. */
+function carriedCalls(file: string): number {
+	return entriesOf(file)
+		.map((entry) => entry.message)
+		.filter(isRecord)
+		.flatMap((message) =>
+			Array.isArray(message.content) ? message.content : [],
+		)
+		.filter(
+			(part) =>
+				isRecord(part) &&
+				part.type === "toolCall" &&
+				part.name === "bash" &&
+				isRecord(part.arguments) &&
+				part.arguments.command === CARRYING,
+		).length;
+}
+
+/**
+ * Each entry of a session file in a line: its type, its message's role,
+ * how an answer stopped and its error text, and its custom type, so a
+ * failure says what asked the model and how it answered.
+ */
+function entryLines(file: string): string {
+	return entriesOf(file)
+		.map((entry) => {
+			const message = isRecord(entry.message) ? entry.message : {};
+			const what = [
+				message.role,
+				message.stopReason,
+				message.errorMessage,
+				entry.customType,
+			]
+				.filter((one) => typeof one === "string")
+				.join(" ");
+			return `${String(entry.type)}${what === "" ? "" : ` ${what}`}`;
+		})
+		.join("\n");
+}
+
+/**
+ * Whether the turn a session file records is answered, throwing at once
+ * on an answer that stopped on an error: a sealed host turns pi's retry
+ * off, so that answer is the turn's last word, and a wait on it would
+ * spend its whole round trip before saying so.
+ */
+function answeredSoFar(file: string): boolean {
+	const erred = erredLast(file);
+	if (erred !== undefined)
+		throw new Error(
+			`the hosted turn stopped on an error, which a sealed host doesn't retry: ${erred}`,
+		);
+	return answeredLast(file);
+}
+
+/**
+ * Wait for nothing the shell kept of the command to be left once its end
+ * is said. The files go as the end's message is seen (job-workflow's
+ * message_end), so ones still there say that sight never counted: in
+ * h2353c on 27 November an .end and an .out stayed, and the failure said
+ * nothing of the log or the hosts.
+ */
+async function keptGoes(file: string): Promise<void> {
+	await untilAnswered(
+		"nothing the shell kept of the command is left once its end is said",
+		async () => kept().length === 0,
+		ROUND_TRIP_MS,
+	).catch((failed: unknown) => {
+		throw new Error(
+			[
+				`${String(failed)}; left: ${kept().join(", ")}`,
+				`the log's entries:\n${entryLines(file)}`,
+			].join("\n"),
+		);
+	});
+}
+
+/**
+ * `carriedOnce`, once the turn the next host's word of the end starts is
+ * answered: that turn, or the next host's continue, is what may ask the
+ * model again, and a run it starts is in the log only once it ends.
+ */
+async function answeredOnce(file: string, when: string): Promise<void> {
+	await untilAnswered(
+		`the turn is answered ${when}`,
+		async () => answeredSoFar(file),
+		ROUND_TRIP_MS,
+	).catch((failed: unknown) => {
+		throw new Error(
+			[
+				`${String(failed)}; the model ran the carried command ${carriedCalls(file)} times`,
+				`the log's entries:\n${entryLines(file)}`,
+			].join("\n"),
+		);
+	});
+	carriedOnce(file, when);
+}
+
+/**
+ * Throw unless the conversation ran the carried command once: a second
+ * run leaves two shells, of which a case may kill the wrong one, as E24's
+ * did in h2353 on 27 November, and is itself a model asked twice.
+ */
+function carriedOnce(file: string, when: string): void {
+	const calls = carriedCalls(file);
+	const pids = kept().filter((name) => name.endsWith(".pid")).length;
+	if (calls === 1 && pids <= 1) return;
+	throw new Error(
+		[
+			`${when}, the model ran the carried command ${calls} times, and the shell kept ${pids} pids`,
+			`the log's entries:\n${entryLines(file)}`,
+		].join("\n"),
+	);
+}
+
 /** A host under the seal, kept to be killed after. */
 async function start(pi: string): Promise<HostProcess> {
 	const host = await startHost({
@@ -142,9 +315,14 @@ async function carrying(
 	const file = one.file ?? "";
 	await untilAnswered(
 		"the hosted turn that started the command to end",
-		async () => textOf(file).includes(CARRYING) && turnEnded(file),
+		async () => answeredSoFar(file) && textOf(file).includes(CARRYING),
 		ROUND_TRIP_MS,
-	);
+	).catch((failed: unknown) => {
+		// What the log holds says why the turn never ended as it should.
+		throw new Error(
+			[String(failed), `the log's entries:\n${entryLines(file)}`].join("\n"),
+		);
+	});
 	// The call's .pid is made empty before its shell starts, and the stub
 	// writes the pid only as it runs, which can come after the turn ends:
 	// read at once, 1 in 3 runs on 21 November found it empty.
@@ -155,14 +333,13 @@ async function carrying(
 	)
 		// A pid never written is said just below, with what the host wrote.
 		.catch(() => undefined);
+	carriedOnce(file, "as its pid was written");
 	const shell = keptShell();
 	if (shell === undefined)
-		throw new Error(
-			`the carried command's shell never wrote its pid; ${said()}`,
-		);
+		throw new Error("the carried command's shell never wrote its pid");
 	if (!alive(shell.pid))
 		throw new Error(
-			`the carried command's shell ${shell.pid} wrote its pid but isn't alive; ${said()}`,
+			`the carried command's shell ${shell.pid} wrote its pid but isn't alive`,
 		);
 	return {
 		file,
@@ -179,13 +356,13 @@ it(
 			const first = await start(pi);
 			const { file, held, shell } = await carrying(first);
 
-			await first.restart();
+			await restarted(first);
+			carriedOnce(file, "after the restart");
 			expect(
 				alive(shell),
 				[
 					"the restart let the command run on",
 					`the log records a carry: ${textOf(file).includes('"job-carried"')}`,
-					said(),
 				].join("\n"),
 			).toBe(true);
 
@@ -202,19 +379,15 @@ it(
 					return there.includes(CARRIED_END) && there.includes("[j1]");
 				},
 				CARRIED_MS,
-			).catch((failed: unknown) => {
-				throw new Error(`${String(failed)}\n${said()}`);
-			});
-			await untilAnswered(
-				"nothing the shell kept of the command is left once its end is said",
-				async () => kept().length === 0,
-				ROUND_TRIP_MS,
-			).catch((failed: unknown) => {
-				throw new Error(`${String(failed)}; left: ${kept().join(", ")}`);
-			});
+			);
+			await answeredOnce(file, "once the next host said its end");
+			await keptGoes(file);
 		});
 	},
-	ROUND_TRIP_MS * 4 + CARRIED_MS,
+	// Its bounded waits (five round trips, CARRIED_MS, the hosts' and the
+	// restart's) with one round trip spare, so a wait's own failure, which
+	// says what it saw, comes first.
+	ROUND_TRIP_MS * 6 + CARRIED_MS + HOSTS_MS + RESTART_MS,
 );
 
 it(
@@ -236,6 +409,7 @@ it(
 			).catch(() => undefined);
 
 			await first.kill();
+			carriedOnce(file, "after the kill");
 			const killedAfter = Date.now() - started;
 			if (!alive(shell) || killedAfter >= RUNS_MS - 15_000)
 				throw new Error(
@@ -251,10 +425,9 @@ it(
 			// it resumes anything, so a command its record spared runs on here,
 			// unless it was already about to end of itself.
 			if (Date.now() - started < RUNS_MS - 2_000)
-				expect(
-					alive(shell),
-					`the next host's start spared the command; ${said()}`,
-				).toBe(true);
+				expect(alive(shell), "the next host's start spared the command").toBe(
+					true,
+				);
 			await untilAnswered(
 				"the command's end is said after the kill, under its job id",
 				async () => {
@@ -269,7 +442,6 @@ it(
 						`the command ran on: ${alive(shell)}`,
 						`kept: ${kept().join(", ")}`,
 						`said: ${saidAfter(file, held.length)}`,
-						said(),
 					].join("\n"),
 				);
 			});
@@ -280,16 +452,13 @@ it(
 				endedAfter >= RUNS_MS,
 				`the end said is the command's own, its timeout's, not a stop's: said ${endedAfter} ms into it`,
 			).toBe(true);
-			await untilAnswered(
-				"nothing the shell kept of the command is left once its end is said",
-				async () => kept().length === 0,
-				ROUND_TRIP_MS,
-			).catch((failed: unknown) => {
-				throw new Error(`${String(failed)}; left: ${kept().join(", ")}`);
-			});
+			await answeredOnce(file, "once the next host said its end");
+			await keptGoes(file);
 		});
 	},
-	ROUND_TRIP_MS * 5 + CARRIED_MS,
+	// Its bounded waits (five round trips, CARRIED_MS, RECORD_MS, the
+	// hosts' and the kill's) with nearly two round trips spare, as E23's.
+	ROUND_TRIP_MS * 7 + CARRIED_MS + HOSTS_MS + HOST_WAIT_MS,
 );
 
 it(
@@ -299,7 +468,9 @@ it(
 			const first = await start(pi);
 			const { file, held, shell } = await carrying(first);
 
-			await first.restart();
+			await restarted(first);
+			// One run alone, so the shell killed is the one the case names.
+			carriedOnce(file, "after the restart");
 			// Killed while no host runs, its stub never writes a status.
 			process.kill(-shell, "SIGKILL");
 
@@ -313,9 +484,10 @@ it(
 				ROUND_TRIP_MS * 2,
 			).catch((failed: unknown) => {
 				throw new Error(
-					`${String(failed)}\nsaid: ${saidAfter(file, held.length)}\n${said()}`,
+					`${String(failed)}\nsaid: ${saidAfter(file, held.length)}`,
 				);
 			});
+			await answeredOnce(file, "once the next host said it was lost");
 			// The lost line quotes the command, its echo included, so only a
 			// line of the echo's own output would say it ran again.
 			const there = saidAfter(file, held.length);
@@ -328,5 +500,7 @@ it(
 			);
 		});
 	},
-	ROUND_TRIP_MS * 5,
+	// Its bounded waits (five round trips, the hosts' and the restart's)
+	// with two round trips spare, as E23's reasons.
+	ROUND_TRIP_MS * 7 + HOSTS_MS + RESTART_MS,
 );

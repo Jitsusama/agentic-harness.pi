@@ -198,6 +198,7 @@ export async function awaitRosterStart(
 			change,
 			kind,
 			leads: await isWorldWork(change),
+			...(room.away === true ? { away: true } : {}),
 			urgent: () => urgentMarks(line),
 			startedElsewhere: () => newestRosterStartIn(runs),
 			room: () => room.short(),
@@ -281,6 +282,20 @@ export function roundRoom(
 }
 
 /**
+ * The room a round whose reviewers run on a room waits on: none of this
+ * machine's, since its reviewers load and think there. It stands in the
+ * line ahead of the rounds that wait on this machine's bars, since none
+ * of those holds it, and keeps the spacing. On 27 November optimus's
+ * line held 57 rounds behind its memory bar, which a round sent to a
+ * room would have waited behind too.
+ */
+export const ROOM_ROUND: RosterRoom = {
+	short: async () => undefined,
+	startedUnjudged: () => undefined,
+	away: true,
+};
+
+/**
  * The room a roster round waits on: what keeps it from starting, the
  * spacing its machine keeps when the config sets none, and whether the
  * machine is quiet enough to start sooner, where it can tell.
@@ -292,6 +307,8 @@ export interface RosterRoom extends Omit<RoundRoom, "short"> {
 	readonly spacingMs?: number;
 	/** Whether the machine is quiet; left out where it can't be read. */
 	readonly quiet?: () => Promise<boolean>;
+	/** Whether the round's reviewers run on another machine. */
+	readonly away?: boolean;
 }
 
 /** The names the line shows for what holds a Mac's round. */

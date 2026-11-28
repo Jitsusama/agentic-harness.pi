@@ -18,8 +18,12 @@ import {
 	systemFolders,
 	systemProgram,
 } from "../../../lib/internal/sandbox/system-program.ts";
+import { getSubagentDefaults } from "../../../lib/subagent/defaults.ts";
 import type { RoomAsk } from "../../../lib/subagent/run-contract.ts";
-import { ROOM_REPOS } from "../../../lib/subagent/runpi/room-launch.ts";
+import {
+	MAX_ROOM_BRIEF_BYTES,
+	ROOM_REPOS,
+} from "../../../lib/subagent/runpi/room-launch.ts";
 import { REVIEW_SLUG } from "../config.ts";
 import { fencePacks } from "./ask-reviewer.ts";
 
@@ -45,18 +49,39 @@ export function myceliumAt(
 	return systemProgram(MYCELIUM, folders);
 }
 
-/** Where this package's code lies, and what the room's entry loads itself. */
+/**
+ * Where this package's code lies, what the room's entry loads itself,
+ * and what this session's reviewers load only here.
+ */
 export interface RoomHarness {
 	readonly root: string;
 	readonly entryLoads: readonly string[];
+	readonly hereOnly?: readonly string[];
 }
 
 /**
  * This package's code, as a reviewer reading `folder` loads it: the
- * fence's extensions are the ones the room's entry loads itself.
+ * fence's extensions are the ones the room's entry loads itself, and
+ * the session's registered defaults are this machine's, which a room
+ * has no use for: outside packages register them for the model access
+ * and credentials here, and the room's entry brings its own provider.
  */
 export function roomHarness(folder: string): RoomHarness {
-	return { root: packageRoot(), entryLoads: fencePacks(folder) };
+	const defaults = getSubagentDefaults();
+	return {
+		root: packageRoot(),
+		entryLoads: fencePacks(folder),
+		hereOnly: [...defaults.extensions, ...defaults.skills],
+	};
+}
+
+/**
+ * Whether a round's prompt fits the command line that starts a reviewer
+ * on a room. One that doesn't keeps its round here, since a reviewer
+ * asked on a room never runs here instead.
+ */
+export function briefFitsARoom(prompt: string): boolean {
+	return Buffer.byteLength(prompt) <= MAX_ROOM_BRIEF_BYTES;
 }
 
 /**
@@ -85,6 +110,7 @@ export async function roomFor(
 			machine: named.machine,
 			harnessRoot: harness.root,
 			entryLoads: harness.entryLoads,
+			...(harness.hereOnly === undefined ? {} : { hereOnly: harness.hereOnly }),
 		},
 		code: { repo, commit: head },
 	};

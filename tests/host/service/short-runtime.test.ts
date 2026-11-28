@@ -31,6 +31,7 @@ const sockets = process.env[SOCKET_ROOT];
 function mayWriteTmp(): boolean {
 	let probe: string;
 	try {
+		// /tmp itself is what's probed, named as a short folder for the sweep.
 		probe = mkdtempSync("/tmp/vs-");
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException).code ?? "";

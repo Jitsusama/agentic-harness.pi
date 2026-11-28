@@ -295,7 +295,7 @@ describe("spacing council starts on one machine", () => {
 		expect(placed.askedAt, "the first ask's time").toBe(first);
 	});
 
-	it("keeps urgent rounds first, then those that lead, then by first ask", async () => {
+	it("keeps urgent rounds first, then those run elsewhere, then those that lead, then by first ask", async () => {
 		const at = (minutes: number) =>
 			new Date(Date.now() - minutes * 60_000).toISOString();
 		const now = new Date().toISOString();
@@ -312,6 +312,7 @@ describe("spacing council starts on one machine", () => {
 			ticket("plain", at(30)),
 			ticket("world", at(10), { change: "shop/world#1" }),
 			ticket("marked", at(20), { leads: true }),
+			ticket("room", at(5), { away: true }),
 		]);
 		const giving = new AbortController();
 
@@ -325,12 +326,12 @@ describe("spacing council starts on one machine", () => {
 		);
 		await expect
 			.poll(() => line().waiting.length, { timeout: 4_000, interval: 10 })
-			.toBe(4);
+			.toBe(5);
 		const order = line().waiting.map((each: { by: string }) => each.by);
 		giving.abort();
 		await waiting;
 
-		expect(order).toEqual(["ISXEG8", "marked", "world", "plain"]);
+		expect(order).toEqual(["ISXEG8", "room", "marked", "world", "plain"]);
 	});
 
 	// 25 November: two rounds one session asked in the same millisecond
@@ -520,6 +521,57 @@ describe("spacing council starts on one machine", () => {
 			"85PKB2",
 		]);
 		expect(kept.waiting[0].leads, "kept on its ticket").toBe(true);
+	});
+
+	// 27 November: optimus's line held 57 rounds behind its memory bar,
+	// and a round whose reviewers run on a room waited behind them all.
+	it("starts a round run elsewhere past earlier asks a bar here holds", async () => {
+		const now = new Date().toISOString();
+		const held = (id: string, minutes: number) => ({
+			id,
+			by: id,
+			change: `o/r#${id}`,
+			pid: process.pid,
+			askedAt: new Date(Date.now() - minutes * 60_000).toISOString(),
+			seenAt: now,
+		});
+		startedAt("A2VLJN", new Date(Date.now() - 2 * SPACING), [
+			held("memory", 30),
+			held("cpu", 20),
+		]);
+
+		const start = await awaitCouncilStart(
+			path,
+			claim("85PKB2", { away: true }),
+			AbortSignal.timeout(4_000),
+		);
+
+		expect(start.cancelled, "started, not given up").toBeUndefined();
+		expect(line().started.by).toBe("85PKB2");
+		expect(
+			line().waiting.map((each: { by: string }) => each.by),
+			"those it passed keep their places",
+		).toEqual(["memory", "cpu"]);
+	});
+
+	it("keeps the spacing for a round run elsewhere", async () => {
+		startedAt("A2VLJN", new Date());
+		const giving = new AbortController();
+
+		const waiting = awaitCouncilStart(
+			path,
+			claim("85PKB2", { away: true, spacingMs: 60_000 }),
+			giving.signal,
+		);
+		await expect
+			.poll(() => line().waiting.length, { timeout: 4_000, interval: 10 })
+			.toBe(1);
+		const kept = line();
+		giving.abort();
+		await waiting;
+
+		expect(kept.started.by, "the last start still stands").toBe("A2VLJN");
+		expect(kept.waiting[0].away, "kept on its ticket").toBe(true);
 	});
 
 	it("forgets a change's first ask once it has started", async () => {

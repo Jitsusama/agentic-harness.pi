@@ -57,6 +57,7 @@ import type {
 	ProviderConfig,
 	ProviderModelConfig,
 } from "@earendil-works/pi-coding-agent";
+import { isRecord } from "../../../../lib/internal/record.ts";
 
 /** The api the scripted provider answers under, in every pi. */
 export const SCRIPTED_API = "sealed-faux";
@@ -175,7 +176,7 @@ const ANSWERS = 200;
 export const TOKEN_SIZE = { min: 2, max: 2 } as const;
 
 /** Fifty rows from SQLite alone, whatever the ledger holds. */
-const FIFTY_ROWS = `SELECT value FROM json_each('${JSON.stringify(
+export const FIFTY_ROWS = `SELECT value FROM json_each('${JSON.stringify(
 	Array.from({ length: 50 }, (_, at) => at + 1),
 )}')`;
 
@@ -307,17 +308,47 @@ function toldTo(words: string, told: string): boolean {
 }
 
 /**
- * The words of the latest turn's user messages, joined: the harness puts
- * its own notes, such as the quest context, beside what was said, so the
- * words to act on needn't be the last of them.
+ * The words of the user messages since the model's last answer, joined:
+ * the harness puts its own notes, such as the quest context, beside what
+ * was said, so the words to act on needn't be the last of them. Asked
+ * again on a turn it already answered, as a carried run's continue may
+ * ask, it has nothing new to act on: reading back past its answer ran
+ * `carry` twice in h2353 on 27 November.
  */
 function latestWords(heard: readonly Said[]): string {
 	const said: string[] = [];
 	for (const one of [...heard].reverse()) {
-		if (one.role === "user") said.unshift(wordsOf(one));
-		else if (said.length > 0) break;
+		if (one.role !== "user") break;
+		said.unshift(wordsOf(one));
 	}
 	return said.join("\n");
+}
+
+/**
+ * The words of the turn still running: `latestWords` before the tool
+ * calls and results the model has made since, so a second step after
+ * tool_search reads what started the turn. A turn the model ended with
+ * an answer holds none, as `latestWords` says.
+ */
+function turnWords(heard: readonly Said[]): string {
+	let end = heard.length;
+	while (end > 0) {
+		const one = heard[end - 1];
+		if (one?.role !== "toolResult" && !callsTool(one)) break;
+		end -= 1;
+	}
+	return latestWords(heard.slice(0, end));
+}
+
+/** Whether `one` is the model's message calling a tool. */
+function callsTool(one: Said | undefined): boolean {
+	return (
+		one?.role === "assistant" &&
+		Array.isArray(one.content) &&
+		one.content.some(
+			(part: unknown) => isRecord(part) && part.type === "toolCall",
+		)
+	);
 }
 
 /**
@@ -329,7 +360,7 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 	const heard = messages.filter((one) => one.role !== "system");
 	const last = heard.at(-1);
 	if (last?.role === "toolResult") {
-		const told = latestWords(heard);
+		const told = turnWords(heard);
 		const ending = ENDING.exec(told)?.[1];
 		if (last.toolName === "tool_search" && toldTo(told, STORE))
 			return toolCall(faux, "spend", { query: FIFTY_ROWS, limit: 2 });
@@ -341,7 +372,7 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 		const carried = CARRIED.exec(told);
 		if (last.toolName === "tool_search" && carried?.[1] && carried[2])
 			return carriedFleetOf(faux, carried[1], carried[2]);
-		return faux.fauxAssistantMessage("sent");
+		return answerOf(faux, "sent");
 	}
 	const words = latestWords(heard);
 	const delivered =
@@ -353,7 +384,7 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 			text: "pong",
 		});
 	if (/Mesh message \[[0-9a-f]+\][^\n]*:\n\npong/.test(words))
-		return faux.fauxAssistantMessage("pong heard");
+		return answerOf(faux, "pong heard");
 	const ping = /^ping (\S+)$/m.exec(words);
 	if (ping?.[1])
 		return toolCall(faux, "mesh_send", {
@@ -365,7 +396,7 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 		return toolCall(faux, "tool_search", { query: "spend" });
 	if (toldTo(words, ACCOUNT))
 		return toolCall(faux, "bash", { command: ACCOUNTING });
-	if (toldTo(words, WHOAMI)) return faux.fauxAssistantMessage(ownPi());
+	if (toldTo(words, WHOAMI)) return answerOf(faux, ownPi());
 	if (toldTo(words, DAWDLE))
 		return toolCall(faux, "bash", { command: DAWDLING });
 	if (toldTo(words, FENCED))
@@ -406,7 +437,7 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 			handle: handle[1],
 			expression: "$[*]",
 		});
-	return faux.fauxAssistantMessage("ok");
+	return answerOf(faux, "ok");
 }
 
 /**
@@ -434,6 +465,16 @@ function fleetOf(faux: Faux, cwd: string, extension: string): unknown {
 			extraExtensions: [extension],
 		})),
 	});
+}
+
+/**
+ * A turn that says `text` and stops. The stop is said, not left to the
+ * faux's default: the host cases take the faux from the pi built with the
+ * host's patches, which this script's own tests don't load, and their
+ * waits count only an answer that stopped.
+ */
+function answerOf(faux: Faux, text: string): unknown {
+	return faux.fauxAssistantMessage(text, { stopReason: "stop" });
 }
 
 /** A turn that calls the tool `name` with `args`. */

@@ -22,12 +22,12 @@
  * `--owner`, so the two can't differ. A missing file declares none.
  *
  * The node's rule is mycelium's `subjects()` in `src/networks/made.rs`:
- * each string trimmed, the first 12 of at most 120 characters (code
+ * each string trimmed, the first 24 of at most 120 characters (code
  * points, `chars().count()`) holding no control, direction mark, unseen
  * character or line or paragraph separator. The same rule is kept here,
  * refusing every format character rather than the node's named few, so
  * a subject this passes is one the node serves and a subject it would
- * pass over never takes one of the 12 places.
+ * pass over never takes one of the 24 places.
  *
  * A subject routes a need and grants nothing: a yes, a ruling or a grant
  * still comes only from the owner named by address.
@@ -38,8 +38,15 @@ import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { drawsAsNothing } from "../internal/unseen.ts";
 
-/** The most subjects a cell declares, as mycelium's node reads them. */
-export const MOST_SUBJECTS = 12;
+/**
+ * The most subjects a cell declares, as mycelium's node reads them.
+ * Twelve cut off the areas a cell's merges led behind its owner lines
+ * and its quest's words: in a replay of 450 of the mesh's needs, 80
+ * labelled with their owner, lib/core's areas read deeper found the
+ * owner for 62 at 24 against 51 at 12, and needs about the review tools
+ * went from 16 of 32 to 26. Raising this alone found 52.
+ */
+export const MOST_SUBJECTS = 24;
 
 /** The most characters one subject holds, as the node reads it. */
 export const LONGEST_SUBJECT = 120;
