@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { fenceArgs } from "../../../../lib/internal/fence/fence.ts";
+import { fenceArgs, grantArgs } from "../../../../lib/internal/fence/fence.ts";
 import type { Disk } from "../../../../lib/internal/fence/fence-disk.ts";
 
 const disk: Disk = {
@@ -72,16 +72,29 @@ describe("a machine's grants inside the fence", () => {
 			expect(where, `${bind[1]} is bound`).toBeGreaterThan(-1);
 			expect(where, `${bind[1]} before the home`).toBeLessThan(home);
 		}
+		// Every grant is bound before the home, so before anything the fence
+		// then hides in it; this shows there is such a thing to come after.
 		const laterInHome = args.findIndex(
 			(arg, index) => index > home && arg.startsWith(`${place.home}/`),
 		);
-		for (const bind of binds) {
-			if (laterInHome > -1) {
-				expect(at(args, bind), `${bind[1]} before what is hidden`).toBeLessThan(
-					laterInHome,
-				);
-			}
-		}
+		expect(laterInHome, "something is hidden in the home").toBeGreaterThan(
+			home,
+		);
+	});
+
+	it("binds every read before every write, so no read hides a write within it", () => {
+		const args = grantArgs(
+			{ read: ["/srv/a"], write: ["/srv/a/b"] },
+			() => true,
+		);
+		expect(args, "the read, then the write within it").toEqual([
+			"--ro-bind",
+			"/srv/a",
+			"/srv/a",
+			"--bind",
+			"/srv/a/b",
+			"/srv/a/b",
+		]);
 	});
 
 	it("leaves out a granted path this machine lacks", () => {
