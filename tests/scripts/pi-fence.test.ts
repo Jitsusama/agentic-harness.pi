@@ -118,9 +118,10 @@ function fencedCall(): void {
 	lay(103, 102, "sleep", { fenced: true });
 }
 
-/** The census, run as pi-fence over the test's machine. */
+/** The census, run as pi-fence over the test's machine, asked `more`. */
 function census(
 	proc: string,
+	...more: readonly string[]
 ): Promise<{ readonly code: number; readonly out: string }> {
 	return new Promise((done) => {
 		execFile(
@@ -129,6 +130,7 @@ function census(
 				"--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
 				SCRIPT,
 				"census",
+				...more,
 				"--proc",
 				proc,
 			],
@@ -197,6 +199,81 @@ describe("pi-fence census", () => {
 		const ran = await census(join(root, "nowhere"));
 		expect(ran.out).toContain("can't read");
 		expect(ran.code).toBe(1);
+	});
+
+	// The everyone stage takes every background host's conversation and
+	// never the attended host's, where Joel sits (ISXEG8, 27 November).
+	describe("of the stage", () => {
+		const ATTENDED = "22222222-2222-4222-8222-222222222222";
+		/** pi's state folder in the test's home, once it is made. */
+		const pi = (): string => join(root, "state/pi/agentic-harness.pi");
+
+		/** A conversation hosted by pid 100, as its host's presence says it. */
+		function hosted(session: string, host: string, fence: string): void {
+			writeFileSync(
+				join(presences, `${session}.json`),
+				JSON.stringify({
+					session,
+					addresses: [session.slice(0, 6)],
+					groups: [],
+					worksOn: "",
+					owns: [],
+					busy: false,
+					at: "2026-11-16T09:00:00Z",
+					fence,
+					owner: {
+						pid: 100,
+						startedAt: 0,
+						bootId: BOOT,
+						startTicks: 1000,
+						session,
+						host,
+					},
+				}),
+			);
+		}
+
+		/** Two hosts' conversations, everyone joined, the background one seen. */
+		function everyoneStage(): void {
+			hosted(SESSION, "work-background", "fence");
+			hosted(ATTENDED, "work-attended", "none");
+			lay(100, 1, "node");
+			mkdirSync(join(pi(), "fence-stage"), { recursive: true });
+			writeFileSync(join(pi(), "fence-stage/everyone-joins"), "{}\n");
+			mkdirSync(join(pi(), "fence-census"), { recursive: true });
+			writeFileSync(
+				join(pi(), "fence-census/proven.json"),
+				JSON.stringify({ [SESSION]: Date.now() }),
+			);
+		}
+
+		it("exits 0 with the attended conversation unfenced, which the whole census fails", async () => {
+			everyoneStage();
+			const whole = await census(join(root, "proc"));
+			expect(whole.out).toContain("unfenced  222222");
+			expect(whole.code, "the whole census").toBe(1);
+			const staged = await census(join(root, "proc"), "--stage");
+			expect(staged.out).toBe(
+				"1 live session in the stage: 0 proven fenced, 1 claimed, 0 unfenced\n" +
+					"1 outside the stage, left unjudged\n" +
+					"claimed  111111: no command running; its host's environment asks fence; " +
+					"seen fenced within the hour\n",
+			);
+			expect(staged.code, "the stage").toBe(0);
+		});
+
+		it("exits 1 when a session the stage takes runs a command unfenced", async () => {
+			everyoneStage();
+			lay(102, 100, "bash", {
+				env: `PI_BASH_KEEP=1\0PI_SESSION_ID=${SESSION}\0`,
+			});
+			lay(103, 102, "sleep");
+			const ran = await census(join(root, "proc"), "--stage");
+			expect(ran.out).toContain(
+				"unfenced  111111: a command runs unfenced: sleep, pid 103",
+			);
+			expect(ran.code).toBe(1);
+		});
 	});
 });
 

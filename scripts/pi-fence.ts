@@ -5,7 +5,7 @@
  * of it):
  *
  *   node scripts/pi-fence.ts --kind fence|strict [--folder DIR] -- PROGRAM [ARGUMENT...]
- *   node scripts/pi-fence.ts census [--proc DIR]
+ *   node scripts/pi-fence.ts census [--stage] [--proc DIR]
  *
  * The folder is the working directory unless named. The command's own
  * output and input pass straight through, and pi-fence exits with its
@@ -19,6 +19,12 @@
  * unfenced, when a claimed one wasn't seen fenced in the last day, when
  * there is none, or when /proc can't be read. When it saw each session
  * fenced is kept in its state folder for the next census.
+ *
+ * With --stage it judges, and exits on, only the sessions the fence's
+ * first stage takes or whose environment asks a fence of its own, and
+ * says the rest in one count line, left unjudged: the stage by design
+ * takes no terminal's pi or the attended host's, where Joel sits, so
+ * the whole census can't judge it.
  */
 
 import { homedir } from "node:os";
@@ -56,7 +62,9 @@ if ("census" in asked) {
 		return process.exit(REFUSED);
 	});
 	process.exit(
-		loaded.censusHere(asked.census, (text) => process.stdout.write(text)),
+		loaded.censusHere({ proc: asked.census, stage: asked.stage }, (text) =>
+			process.stdout.write(text),
+		),
 	);
 }
 const made = fenceRunText(asked, { env: process.env, home: homedir() });

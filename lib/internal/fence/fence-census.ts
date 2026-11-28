@@ -33,6 +33,11 @@
  * that was within the last day. A process that leaves its command's
  * tree (a `setsid` reparented to the person's service manager) isn't
  * seen; that rule is what bounds it.
+ *
+ * Each session also says whether the fence's first stage takes it, so a
+ * census narrowed to the stage (`pi-fence census --stage`) can judge a
+ * stage that by design leaves out the pis Joel sits at: a terminal's and
+ * the attended host's (ISXEG8, 27 November).
  */
 
 import { readdirSync, readFileSync, readlinkSync, statSync } from "node:fs";
@@ -83,6 +88,12 @@ export interface CensusRow {
 	readonly why: string;
 	/** Its presence's claim, where the claim and its environment differ. */
 	readonly differs?: string;
+	/**
+	 * Whether the fence's first stage takes it, or its environment asks a
+	 * fence of its own; taken too where its environment can't be read, so
+	 * a census of the stage judges one too many rather than one too few.
+	 */
+	readonly staged: boolean;
 }
 
 /** Every live session on the machine, and what was left out. */
@@ -102,6 +113,11 @@ export interface Census {
 	readonly sightings: Readonly<Record<string, number>>;
 	/** When it ran, in ms. */
 	readonly now: number;
+	/**
+	 * Once narrowed to the stage (`stageCensus`), how many live sessions
+	 * it leaves out, unjudged.
+	 */
+	readonly unstaged?: number;
 }
 
 /** One process, as the census reads it from its folder under /proc. */
@@ -219,11 +235,16 @@ function judged(
 	owner: Process,
 	{ commands, children, place, startingTicks }: Judging,
 ): CensusRow {
+	const asks =
+		owner.env === undefined
+			? undefined
+			: askedOf(presence, owner.env, owner.argv, place);
 	const said = {
 		session: presence.session,
 		...(presence.addresses[0] ? { address: presence.addresses[0] } : {}),
 		...(presence.quest ? { quest: presence.quest } : {}),
 		...(presence.title ? { title: presence.title } : {}),
+		staged: asks?.staged ?? true,
 	};
 	const ends = commands
 		.flatMap((command) => endsOf(command, children, place))
@@ -238,30 +259,15 @@ function judged(
 		return { ...said, judged: "proven", why: "its commands run fenced" };
 	}
 	const claim = presence.fence ?? "none";
-	if (owner.env === undefined) {
+	if (asks === undefined) {
 		return {
 			...said,
 			judged: "unfenced",
 			why: `no command running and no environment to read; its presence says ${claim}`,
 		};
 	}
+	const { env, kind, lifted } = asks;
 	const hosted = presence.owner?.host !== undefined;
-	// A hosted conversation's key is in its own environment, never its
-	// host process's, so it is said back from the presence for the stage.
-	const hostKey = presence.owner?.host;
-	const env: NodeJS.ProcessEnv = {
-		...owner.env,
-		PI_SESSION_ID: presence.session,
-		...(hostKey === undefined ? {} : { PI_HOST_KEY: hostKey }),
-	};
-	// /proc shows the environment the pi started with, before it lifted
-	// the fence from itself (fence-lifted.ts), so the census lifts it too.
-	const lifted = liftFence(env);
-	const asked = askedSandbox(env, SANDBOX_NAMES, (each) =>
-		inFirstStage(each, owner.argv, place.stage),
-	).name;
-	const kind: FenceKind =
-		asked === STRICT ? "strict" : asked === undefined ? "none" : "fence";
 	const differs =
 		claim === kind
 			? {}
@@ -288,6 +294,44 @@ function judged(
 		judged: "claimed",
 		why: `no command running; ${where} asks ${kind}`,
 	};
+}
+
+/** What a session's environment asks, read as its pi reads it. */
+interface Asks {
+	/** Its environment, as its pi sees it once it lifted the fence. */
+	readonly env: NodeJS.ProcessEnv;
+	readonly kind: FenceKind;
+	/** Whether its pi lifted `PI_SANDBOX=fence` from itself. */
+	readonly lifted: boolean;
+	/** Whether the stage takes it, or it asks a fence of its own. */
+	readonly staged: boolean;
+}
+
+/** What `presence`'s environment `started`, as its pi started, asks. */
+function askedOf(
+	presence: Presence,
+	started: NodeJS.ProcessEnv,
+	argv: readonly string[],
+	place: CensusPlace,
+): Asks {
+	// A hosted conversation's key is in its own environment, never its
+	// host process's, so it is said back from the presence for the stage.
+	const hostKey = presence.owner?.host;
+	const env: NodeJS.ProcessEnv = {
+		...started,
+		PI_SESSION_ID: presence.session,
+		...(hostKey === undefined ? {} : { PI_HOST_KEY: hostKey }),
+	};
+	// /proc shows the environment the pi started with, before it lifted
+	// the fence from itself (fence-lifted.ts), so the census lifts it too.
+	const lifted = liftFence(env);
+	const inStage = inFirstStage(env, argv, place.stage);
+	const asked = askedSandbox(env, SANDBOX_NAMES, () => inStage).name;
+	const kind: FenceKind =
+		asked === STRICT ? "strict" : asked === undefined ? "none" : "fence";
+	// A session the stage takes is staged even set off, so its way back
+	// shows as unfenced; one outside asking a fence is held to it.
+	return { env, kind, lifted, staged: inStage || kind !== "none" };
 }
 
 /**
@@ -569,8 +613,9 @@ function readLink(path: string): string | undefined {
 }
 
 /**
- * The census as a person reads it: the three counts, then a line for
- * each session not proven fenced, a claimed one saying when it was last
+ * The census as a person reads it: the three counts, narrowed to the
+ * stage the count it left out, then a line for each session not proven
+ * fenced, a claimed one saying when it was last
  * seen fenced, and each whose claim differs from what its environment
  * asks.
  */
@@ -580,9 +625,13 @@ export function censusText(census: Census): string {
 	}
 	const judgedAs = (judged: Judged) =>
 		census.rows.filter((row) => row.judged === judged).length;
+	const where = census.unstaged === undefined ? "" : " in the stage";
 	const lines = [
-		`${count(census.rows.length, "live session")}: ${judgedAs("proven")} proven fenced, ${judgedAs("claimed")} claimed, ${judgedAs("unfenced")} unfenced`,
+		`${count(census.rows.length, "live session")}${where}: ${judgedAs("proven")} proven fenced, ${judgedAs("claimed")} claimed, ${judgedAs("unfenced")} unfenced`,
 	];
+	if (census.unstaged !== undefined) {
+		lines.push(`${census.unstaged} outside the stage, left unjudged`);
+	}
 	for (const row of census.rows.filter((each) => each.judged === "unfenced")) {
 		lines.push(`unfenced  ${rowName(row)}: ${row.why}`);
 	}
@@ -616,6 +665,17 @@ function rowName(row: CensusRow): string {
 	return [row.address ?? row.session, row.quest, row.title]
 		.filter((part) => part !== undefined)
 		.join("  ");
+}
+
+/**
+ * The census narrowed to the sessions the fence's first stage takes,
+ * or whose environment asks a fence of its own, counting those it
+ * leaves out: the stage takes no terminal's pi or the attended host's,
+ * by design, so a census of every session can't judge it.
+ */
+export function stageCensus(census: Census): Census {
+	const rows = census.rows.filter((row) => row.staged);
+	return { ...census, rows, unstaged: census.rows.length - rows.length };
 }
 
 /**
