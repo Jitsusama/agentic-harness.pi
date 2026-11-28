@@ -84,11 +84,17 @@ import { mirroredRunsDir, runDir } from "./engine.ts";
 const COMMITS_ASKED = 500;
 
 /**
- * How many other branches one `rev-list` leaves out. A clone with tens
- * of thousands of remote branches would otherwise pass them all on one
- * command line, past what the kernel takes.
+ * How many remote branches a range asks about, at most. Asking which
+ * branches hold a commit walks each one's history, which over World's
+ * tens of thousands of remote branches took minutes and loaded the
+ * machine; past this many a range can't be read rather than walked. It
+ * also keeps every command naming them well short of what the kernel
+ * takes.
  */
-const REFS_A_CALL = 500;
+const BRANCHES_ASKED = 300;
+
+/** What a range answers when its clone has more remote branches than it asks about. */
+const CROWDED = "crowded";
 
 /** How many of a branch's earlier heads, newest first, each reflog is asked for. */
 const EARLIER_HEADS = 30;
@@ -345,7 +351,9 @@ type Read =
 			base: string;
 			head: string;
 	  }
-	| { unread: string };
+	| { unread: string }
+	/** Its head commit, in a clone with more remote branches than a range asks about. */
+	| { crowded: string };
 
 /**
  * Why `doing` must wait for a council of ours, or nothing when one has
@@ -360,8 +368,15 @@ export async function councilFirst(
 	const read = await commitsOf(exec, change);
 	const commits = new Set("commits" in read ? read.commits : []);
 	if (change.headCommit) commits.add(change.headCommit);
+	// A branch holding the head is never one of its range's holders, so
+	// the head is always the change's own: a council that read it read
+	// this change, however many branches the clone has.
+	if ("crowded" in read) commits.add(read.crowded);
 	if (await witnessed(change.repo, commits)) return undefined;
 	const range = `${change.base}..${change.head}`;
+	if ("crowded" in read) {
+		return `${range} isn't ${doing}: ${change.checkout} has more than ${BRANCHES_ASKED} remote branches, too many to ask which of them hold its commits, so only a council of ours that read its head, ${read.crowded}, lets it through (Joel's rule: our own review before anyone else's). Run review_ask council on it at its head, then ask again.${await said()}`;
+	}
 	if ("unread" in read) {
 		return `${range} isn't ${doing}: ${read.unread}, so whether our own council read it can't be told (Joel's rule: our own review before anyone else's). Push the branch, or pass repo naming a checkout that has it, then ask again.${await said()}`;
 	}
@@ -400,7 +415,18 @@ async function commitsOf(exec: Exec, change: ChangeCommits): Promise<Read> {
 	const base = await pushed(change.base);
 	const head = change.headCommit ?? (await pushed(change.head));
 	const range = await rangeOf(git, base, head, change.head);
-	return range
+	if (range === CROWDED) {
+		const tip = await git(
+			"rev-parse",
+			"--verify",
+			"--quiet",
+			"--end-of-options",
+			`${head}^{commit}`,
+		);
+		const commit = tip.stdout.trim();
+		if (tip.code === 0 && COMMIT_ID.test(commit)) return { crowded: commit };
+	}
+	return range && range !== CROWDED
 		? { ...range, base, head }
 		: { unread: `${base}..${head} can't be read in ${change.checkout}` };
 }
@@ -408,7 +434,8 @@ async function commitsOf(exec: Exec, change: ChangeCommits): Promise<Read> {
 /**
  * The commits from `base` to `head` that are `branch`'s own, and those
  * another pushed branch holds without `head`, with those branches'
- * names; nothing when they can't be read.
+ * names; crowded when the clone has more remote branches than are
+ * asked about, and nothing when they can't be read.
  */
 async function rangeOf(
 	git: (...args: string[]) => ReturnType<Exec>,
@@ -416,7 +443,9 @@ async function rangeOf(
 	head: string,
 	branch: string,
 ): Promise<
-	{ commits: string[]; shared: string[]; holders: string[] } | undefined
+	| { commits: string[]; shared: string[]; holders: string[] }
+	| typeof CROWDED
+	| undefined
 > {
 	const list = async (...without: string[]) => {
 		const listed = await git(
@@ -431,16 +460,11 @@ async function rangeOf(
 	const all = await list();
 	if (all === undefined) return undefined;
 	const others = await othersHolding(git, head, branch, all);
-	if (others === undefined) return undefined;
-	// A commit is the change's own when no batch of other branches holds
-	// it, so each batch's answer narrows what the last left.
-	const own = new Set(all);
-	for (let at = 0; at < others.commits.length; at += REFS_A_CALL) {
-		const kept = await list(...others.commits.slice(at, at + REFS_A_CALL));
-		if (kept === undefined) return undefined;
-		const stays = new Set(kept);
-		for (const sha of own) if (!stays.has(sha)) own.delete(sha);
-	}
+	if (others === undefined || others === CROWDED) return others;
+	// A commit is the change's own when no other branch holds it.
+	const kept = others.commits.length > 0 ? await list(...others.commits) : all;
+	if (kept === undefined) return undefined;
+	const own = new Set(kept);
 	return {
 		commits: all.filter((sha) => own.has(sha)),
 		shared: all.filter((sha) => !own.has(sha)),
@@ -641,7 +665,8 @@ async function ownWherever(
 	let held = false;
 	for (const head of heads) {
 		const range = await rangeOf(git, base, head, branch);
-		if (range === undefined) return false;
+		// Past the branches asked about, nothing is lent.
+		if (range === undefined || range === CROWDED) return false;
 		if (range.shared.includes(commit)) return false;
 		if (range.commits.includes(commit)) held = true;
 	}
@@ -830,15 +855,18 @@ async function replayed(
  * the commits they point at and their names, leaving out `branch`
  * itself on any remote. Only a branch holding one of the range's
  * roots, the commits whose parents are all outside it, can hold any of
- * it, so only those are asked about, however many branches the clone
- * has.
+ * it, so only those are asked about. Only a clone with at most
+ * `BRANCHES_ASKED` remote branches is asked: past that it is crowded,
+ * as whether they hold any can't be read without walking them all.
  */
 async function othersHolding(
 	git: (...args: string[]) => ReturnType<Exec>,
 	head: string,
 	branch: string,
 	commits: readonly string[],
-): Promise<{ commits: string[]; names: string[] } | undefined> {
+): Promise<
+	{ commits: string[]; names: string[] } | typeof CROWDED | undefined
+> {
 	if (commits.length === 0) return { commits: [], names: [] };
 	const parents = await git(
 		"rev-list",
@@ -859,12 +887,25 @@ async function othersHolding(
 				!above.some((one) => inRange.has(one)),
 		)
 		.flatMap(([commit]) => (commit ? [commit] : []));
+	// Listing them, one past the bound, reads no history, however many
+	// there are.
+	const listed = await git(
+		"for-each-ref",
+		`--count=${BRANCHES_ASKED + 1}`,
+		"--format=%(refname)",
+		"refs/remotes",
+	);
+	if (listed.code !== 0) return undefined;
+	const remotes = listed.stdout.split("\n").filter((name) => name !== "");
+	if (remotes.length > BRANCHES_ASKED) return CROWDED;
+	if (remotes.length === 0) return { commits: [], names: [] };
+	// Named in full, only these are walked, though more arrive meanwhile.
 	const refs = await git(
 		"for-each-ref",
 		"--format=%(objectname) %(refname:lstrip=3)",
 		`--no-contains=${head}`,
 		...roots.map((root) => `--contains=${root}`),
-		"refs/remotes",
+		...remotes,
 	);
 	if (refs.code !== 0) return undefined;
 	const held = refs.stdout
