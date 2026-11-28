@@ -549,6 +549,30 @@ describe("leases as listed", () => {
 			`\nLeases:\nWCJQSG: waiting at place 1 to run a walk of World's git objects of push class 0, since ${at} (git fetch origin main); waiting at place 2 to run a walk of World's git objects, since ${at} (git fetch origin main)`,
 		);
 	});
+
+	it("say a job waiting past when it was due to start is overdue", () => {
+		const now = Date.now();
+		const since = "2026-11-27T21:30:00.000Z";
+		const build = {
+			class: "bulk" as const,
+			kind: "build" as const,
+			state: "waiting" as const,
+			owner: { session: "w", pid: 1 },
+			what: "cargo build",
+			memoryGib: 4,
+			since,
+			overdue: true as const,
+		};
+		const jobs = [
+			{ ...build, id: "j1", place: 3 },
+			{ ...build, id: "j2", kind: "vm-test" as const },
+		];
+		const at = clock({ at: since });
+
+		expect(leasesText([], [present("w", "WCJQSG")], now, jobs)).toBe(
+			`\nLeases:\nWCJQSG: waiting at place 3, overdue, to run a build, since ${at} (cargo build); waiting, overdue, to run a VM test, since ${at} (cargo build)`,
+		);
+	});
 });
 
 describe("heavy shell calls", () => {
