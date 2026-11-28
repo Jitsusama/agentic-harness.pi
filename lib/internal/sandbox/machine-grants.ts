@@ -107,8 +107,36 @@ const WRITABLE_BY_OTHERS = 0o022;
 /** No grant at all: what a machine without a grants file, or a served session, gets. */
 export const NO_GRANTS: MachineGrants = { read: [], write: [] };
 
-/** What this process has already said of a grant it refused. */
-const said = new Set<string>();
+/**
+ * A way to say why a grant was refused that writes each reason once, in
+ * pi's words, through `write`, however often a session asks.
+ */
+export function sayingOnce(
+	write: (text: string) => void,
+): (why: string) => void {
+	const said = new Set<string>();
+	return (why) => {
+		if (said.has(why)) return;
+		said.add(why);
+		write(`pi: ${why}\n`);
+	};
+}
+
+/**
+ * The account the owner root's files show as, by what `read` finds: root
+ * itself outside a Linux namespace or in one mapping root, and otherwise
+ * the kernel's overflow account, which every account outside the map
+ * shows as.
+ */
+export function rootSeenAsIn(
+	read: (path: string) => string | undefined,
+): number {
+	const map = read(UID_MAP);
+	// No map is no Linux namespace to be in: root is root.
+	if (map === undefined || rootMapped(map)) return ROOT;
+	const overflow = Number.parseInt(read(OVERFLOW_UID) ?? "", 10);
+	return Number.isInteger(overflow) ? overflow : DEFAULT_OVERFLOW;
+}
 
 /** The disk as it is. */
 const DISK: GrantDisk = {
@@ -136,18 +164,8 @@ const DISK: GrantDisk = {
 			return undefined;
 		}
 	},
-	say(why) {
-		if (said.has(why)) return;
-		said.add(why);
-		process.stderr.write(`pi: ${why}\n`);
-	},
-	rootSeenAs() {
-		const map = DISK.read(UID_MAP);
-		// No map is no Linux namespace to be in: root is root.
-		if (map === undefined || rootMapped(map)) return ROOT;
-		const overflow = Number.parseInt(DISK.read(OVERFLOW_UID) ?? "", 10);
-		return Number.isInteger(overflow) ? overflow : DEFAULT_OVERFLOW;
-	},
+	say: sayingOnce((text) => process.stderr.write(text)),
+	rootSeenAs: () => rootSeenAsIn((path) => DISK.read(path)),
 	searchable(folder) {
 		try {
 			accessSync(folder, constants.X_OK);

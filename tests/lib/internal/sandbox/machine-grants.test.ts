@@ -12,6 +12,8 @@ import {
 	type MachineGrants,
 	machineGrants as readGrants,
 	rootMapped,
+	rootSeenAsIn,
+	sayingOnce,
 } from "../../../../lib/internal/sandbox/machine-grants.ts";
 
 const FOLDER = "/etc/pi-sandbox";
@@ -682,5 +684,45 @@ describe("a machine's grants beside a session's runtime folder outside /run/user
 			granted("read", "/srv/run", "/srv/run/").grants.read,
 			"one ending in a slash",
 		).toEqual(["/srv/run"]);
+	});
+});
+
+describe("the owner root's files show as", () => {
+	/** Reads answering `files` by path, none for any other. */
+	const reading = (files: Readonly<Record<string, string>>) => (path: string) =>
+		files[path];
+
+	it.each([
+		["no namespace to be in", {}, 0],
+		["root mapped", { "/proc/self/uid_map": "0 0 4294967295\n" }, 0],
+		[
+			"root unmapped, the kernel naming its overflow",
+			{
+				"/proc/self/uid_map": "1001 1001 1\n",
+				"/proc/sys/kernel/overflowuid": "65000\n",
+			},
+			65000,
+		],
+		[
+			"root unmapped, the kernel naming none",
+			{ "/proc/self/uid_map": "1001 1001 1\n" },
+			65534,
+		],
+	] as const)("is what it should be with %s", (_, files, uid) => {
+		expect(rootSeenAsIn(reading(files)), "root's files show as").toBe(uid);
+	});
+});
+
+describe("a refusal said", () => {
+	it("is written once for each reason, however often it is said", () => {
+		const written: string[] = [];
+		const say = sayingOnce((text) => written.push(text));
+		say("first");
+		say("first");
+		say("second");
+		expect(written, "each reason once").toEqual([
+			"pi: first\n",
+			"pi: second\n",
+		]);
 	});
 });
