@@ -529,3 +529,64 @@ describe("a machine's grants over what the fence covers after them", () => {
 		},
 	);
 });
+
+describe("a World cloud node's grants, as its file is laid", () => {
+	/** The grants file a World cloud node lays, its tokens' folders only read. */
+	const NODE_FILE = {
+		read: [
+			"/run/worker-signing",
+			"/run/user/1001/delta",
+			"/run/user/1001/dev-cloudsmith",
+		],
+		write: ["/world", "/dev/kvm"],
+	};
+
+	/**
+	 * The node's disk under `grants`: every folder along each entry root's
+	 * and closed, the worker's runtime folder its own, /dev/kvm a device.
+	 */
+	const onNode = (grants: unknown) => {
+		const given = disk(JSON.stringify(grants));
+		const lstat = given.lstat;
+		const folders = [
+			"/run",
+			"/run/worker-signing",
+			"/run/user",
+			"/run/user/1001/delta",
+			"/run/user/1001/dev-cloudsmith",
+			"/world",
+			"/dev",
+		];
+		given.lstat = (path) =>
+			path === "/dev/kvm"
+				? { uid: 0, mode: 0o20666, kind: "other" }
+				: path === "/run/user/1001"
+					? { uid: 1001, mode: 0o40700, kind: "folder" }
+					: folders.includes(path)
+						? ROOTS_FOLDER
+						: lstat(path);
+		return { grants: machineGrants(MACHINE_GRANTS, given), said: given.said };
+	};
+
+	it("are granted whole, every path walked on its disk", () => {
+		const { grants, said } = onNode(NODE_FILE);
+		expect(grants, "the node's grants").toEqual(NODE_FILE);
+		expect(said, "nothing said of the node's file").toEqual([]);
+	});
+
+	it("grant nothing where the tokens' folders are written, since a command could plant the next one's token", () => {
+		const { grants, said } = onNode({
+			read: [],
+			write: [
+				"/world",
+				"/dev/kvm",
+				"/run/user/1001/delta",
+				"/run/user/1001/dev-cloudsmith",
+			],
+		});
+		expect(grants, "no grant").toEqual(NONE);
+		expect(said.join("\n"), "names the token folder written").toContain(
+			'"/run/user/1001/delta" under write lies in a runtime folder',
+		);
+	});
+});
