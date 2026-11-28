@@ -8,13 +8,18 @@
  * words that started it, so a second step after tool_search still works.
  */
 
-import { resolve } from "node:path";
+import { spawn } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { isRecord } from "../../../../lib/internal/record.ts";
 import {
+	CARRIED_END,
 	CARRIED_FLEET,
 	CARRY,
 	CARRY_ON,
+	CARRY_RELEASE,
 	CARRYING,
 	CARRYING_ON,
 	type Faux,
@@ -154,6 +159,35 @@ describe("the scripted model", () => {
 		expect(await callsTo([{ role: "user", content: CARRY_ON }])).toEqual([
 			{ name: "bash", arguments: { command: CARRYING_ON, background: true } },
 		]);
+	});
+
+	// E19 on a lent builder, 28 November: a follow killed with SIGTERM
+	// left bash's `Terminated` between the exit and CARRIED_END.
+	it("ends carry on's command as a plain exit 0 once its release is written", async () => {
+		const home = await mkdtemp(join(tmpdir(), "carry-on-"));
+		try {
+			const shell = spawn("bash", ["-c", CARRYING_ON], {
+				env: { PATH: process.env.PATH ?? "", HOME: home },
+			});
+			let said = "";
+			shell.stdout.on("data", (chunk: Buffer) => {
+				said += chunk.toString("utf8");
+			});
+			shell.stderr.on("data", (chunk: Buffer) => {
+				said += chunk.toString("utf8");
+			});
+			const exited = new Promise<number | null>((done) =>
+				shell.once("exit", (code) => done(code)),
+			);
+			// Five of its looks, in which a follow that ends of itself would.
+			await new Promise((done) => setTimeout(done, 1000));
+			expect(shell.exitCode, "it waits for its release").toBeNull();
+			await writeFile(join(home, CARRY_RELEASE), "");
+			expect(await exited).toBe(0);
+			expect(said).toBe(`${CARRIED_END}\n`);
+		} finally {
+			await rm(home, { recursive: true, force: true });
+		}
 	});
 
 	it("runs nothing again when asked once more on a turn it answered", async () => {

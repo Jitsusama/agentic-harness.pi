@@ -6,10 +6,14 @@
  * left once it is said. Before this a move waited out every job, so a
  * session that always had one never moved (OSPHT4, 12 November).
  *
- * The command runs until the case kills its follow, and its end said
- * must be its own: one that ended itself after 45 s could end before a
- * loaded lender's turn and move did, as about half of E17's runs there
- * failed (OSPHT4), and one killed with its shell is said as lost.
+ * The command runs until the case releases its follow by writing a
+ * file, and its end said must be its own, a plain exit 0: one that
+ * ended itself after 45 s could end before a loaded lender's turn and
+ * move did, as about half of E17's runs there failed (OSPHT4), one
+ * killed with its shell is said as lost, and a follow ended by a signal
+ * has bash print `Terminated` into it (E19 on a lent builder). Its kept
+ * shell is looked at as soon as the move or the release is made, so a
+ * shell lost on the way says when, and what of the call was left.
  *
  * E19 goes the other way: a hosted conversation whose command runs is
  * released to plain pi, as item 11's rollback releases every one. The
@@ -21,7 +25,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -38,7 +42,9 @@ import {
 } from "./support/hosted-case.ts";
 import {
 	CARRIED_END,
+	CARRIED_FOLLOW,
 	CARRY_ON,
+	CARRY_RELEASE,
 	CARRYING_ON,
 	SCRIPTED,
 } from "./support/scripted-model.ts";
@@ -63,7 +69,7 @@ const MOVE_MS = 30_000;
 /**
  * How long the follow may take to appear once its turn ended: the turn
  * ends as the shell hands the command to the background, and `timeout`
- * starts `tail` after, which a loaded builder can take seconds to do.
+ * starts the follow after, which a loaded builder can take seconds to do.
  */
 const FOLLOW_STARTS_MS = 10_000;
 
@@ -78,9 +84,16 @@ beforeEach(async () => {
 afterEach(async () => {
 	await plain?.stop();
 	await host?.kill();
-	// A case that failed before ending the follow leaves it running.
+	// A case that failed before releasing the follow leaves it running.
 	const follow = followIn(sealed.home);
-	if (follow !== undefined) endFollow(follow);
+	if (follow !== undefined) {
+		releaseFollow(sealed.home);
+		try {
+			process.kill(follow, "SIGTERM");
+		} catch {
+			// Released and gone already.
+		}
+	}
 	await sealed.dispose();
 });
 
@@ -99,7 +112,8 @@ function followIn(home: string): number | undefined {
 		if (!Number.isInteger(pid)) continue;
 		try {
 			if (
-				readFileSync(`/proc/${pid}/cmdline`, "utf8") !== "tail\0-f\0/dev/null\0"
+				readFileSync(`/proc/${pid}/cmdline`, "utf8") !==
+				`bash\0-c\0${CARRIED_FOLLOW}\0`
 			)
 				continue;
 			const env = readFileSync(`/proc/${pid}/environ`, "utf8").split("\0");
@@ -113,7 +127,7 @@ function followIn(home: string): number | undefined {
 
 /**
  * The carried command's follow, waited for, since a single look just as
- * its turn ends can come before `tail` starts (E17 on a lent builder,
+ * its turn ends can come before the follow starts (E17 on a lent builder,
  * 22 November).
  */
 async function followUp(home: string): Promise<number> {
@@ -141,16 +155,76 @@ function alive(pid: number): boolean {
 }
 
 /**
- * End the carried command's follow, as the case's own stop of it. Its
- * shell then echoes CARRIED_END and exits 0, as the command ending
- * itself would.
+ * Release the carried command's follow, as the case's own end of it:
+ * the follow exits 0, and its shell echoes CARRIED_END and exits 0, with
+ * no signal sent to anything.
  */
-function endFollow(follow: number): void {
+function releaseFollow(home: string): void {
+	writeFileSync(join(home, CARRY_RELEASE), "");
+}
+
+/** What a process's `/proc` file says, or nothing once it can't be read. */
+function procOf(pid: number | string, file: string): string | undefined {
 	try {
-		process.kill(follow, "SIGTERM");
+		return readFileSync(`/proc/${pid}/${file}`, "utf8");
 	} catch {
-		// Already gone: the end said shows how it went.
+		// Gone, or another user's.
+		return undefined;
 	}
+}
+
+/**
+ * Each process running with the seal's HOME: its pid, parent, group,
+ * cgroup and command, so a shell lost on the way shows what of its call
+ * was left and where each part ran.
+ */
+function processesOf(home: string): string {
+	const rows = readdirSync("/proc").flatMap((name) => {
+		if (!Number.isInteger(Number(name))) return [];
+		if (!procOf(name, "environ")?.split("\0").includes(`HOME=${home}`))
+			return [];
+		// Its fields after the command's name, which may hold spaces.
+		const stat = procOf(name, "stat")?.split(") ")[1]?.split(" ") ?? [];
+		const cgroup = procOf(name, "cgroup")?.trim().replaceAll("\n", " ");
+		const command = procOf(name, "cmdline")?.replaceAll("\0", " ").trim();
+		return [
+			`${name} ppid ${stat[1]} pgid ${stat[2]} ${cgroup ?? "?"}: ${command ?? "?"}`,
+		];
+	});
+	return rows.length > 0 ? rows.join("\n") : "none";
+}
+
+/** The kept call's shell, from the pid its stub wrote, if one did. */
+function keptShellIn(seal: Seal): number | undefined {
+	const pid = keptIn(seal).find((name) => name.endsWith(".pid"));
+	if (pid === undefined) return undefined;
+	try {
+		return (
+			Number(readFileSync(join(keptFolderOf(seal), pid), "utf8").trim()) ||
+			undefined
+		);
+	} catch {
+		// Removed since it was listed: its end was said, and it kept none.
+		return undefined;
+	}
+}
+
+/**
+ * Hold that the kept call's shell still runs, as soon as it moved, so a
+ * shell lost on the way fails here, saying what was left, rather than as
+ * a loss once the case releases its follow.
+ */
+function keptShellRuns(seal: Seal, after: string): void {
+	const shell = keptShellIn(seal);
+	expect(
+		shell !== undefined && alive(shell),
+		[
+			`the call's kept shell ${shell ?? "(no pid kept)"} runs on after ${after}`,
+			`kept: ${keptIn(seal).join(", ") || "nothing"}`,
+			`the seal's processes:\n${processesOf(seal.home)}`,
+			said(),
+		].join("\n"),
+	).toBe(true);
 }
 
 /**
@@ -192,15 +266,20 @@ async function ownEndIn(
 	);
 }
 
-/** What the shell keeps of its commands on disk, under the seal's state. */
-function keptIn(seal: Seal): string[] {
-	const folder = join(
+/** Where the shell keeps its commands on disk, under the seal's state. */
+function keptFolderOf(seal: Seal): string {
+	return join(
 		seal.env.XDG_STATE_HOME ?? "",
 		"pi",
 		"agentic-harness.pi",
 		"shell-workflow",
 		"kept",
 	);
+}
+
+/** What the shell keeps of its commands on disk, under the seal's state. */
+function keptIn(seal: Seal): string[] {
+	const folder = keptFolderOf(seal);
 	return existsSync(folder)
 		? readdirSync(folder, { recursive: true }).map(String)
 		: [];
@@ -239,6 +318,7 @@ it(
 				alive(follow),
 				"the pi moved while its command ran, and the command runs on",
 			).toBe(true);
+			keptShellRuns(sealed, "the pi ended");
 			await untilAnswered(
 				"the background host lists the conversation",
 				async () =>
@@ -252,7 +332,7 @@ it(
 				"its log keeps what the pi held",
 			).toBe(true);
 
-			endFollow(follow);
+			releaseFollow(sealed.home);
 			await ownEndIn(file, held.length, "the host");
 			await untilAnswered(
 				"nothing the shell kept of the command is left once its end is said",
@@ -339,6 +419,7 @@ it(
 					said(),
 				].join("\n"),
 			).toBe(true);
+			keptShellRuns(sealed, "the host let it go");
 
 			// Reopen Them All: plain pi, from the same file.
 			plain = await startTerminalPi({
@@ -347,7 +428,7 @@ it(
 				file,
 				cwd,
 			});
-			endFollow(follow);
+			releaseFollow(sealed.home);
 			await ownEndIn(file, held.length, "plain pi");
 			await untilAnswered(
 				"nothing the shell kept of the command is left once its end is said",
