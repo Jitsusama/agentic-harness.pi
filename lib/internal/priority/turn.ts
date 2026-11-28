@@ -26,6 +26,7 @@ import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { hosted, sessionCell } from "../../core/session/index.ts";
 import { offeredShellEnvironment } from "../shell/environment.ts";
+import { DUE_TO_START_VARIABLE, dueToStartOf } from "./due-to-start.ts";
 import { FETCHED_FOLDER, readsMain, worldGit } from "./fetched.ts";
 import { type QueueFolder, UNKEPT_MS } from "./folder.ts";
 import { planFor, planLines } from "./plan.ts";
@@ -248,7 +249,7 @@ export function queuedCommand(
 		!quick && (kind === "build" || kind === "vm-check")
 			? planFor(command)
 			: undefined;
-	const job: Job = {
+	const asked: Job = {
 		id: `${now.toString(36)}-${randomBytes(4).toString("hex")}`,
 		kind,
 		what,
@@ -263,6 +264,17 @@ export function queuedCommand(
 		owner: { session: queueing.session, pid: ownerPid() },
 		since: new Date(now).toISOString(),
 		cappable: true,
+	};
+	// When it is due to start, read as its class is: from the command,
+	// else the environment its shell starts with.
+	const job: Job = {
+		...asked,
+		dueToStart: dueToStartOf(
+			command,
+			asked,
+			where,
+			offered[DUE_TO_START_VARIABLE] ?? process.env[DUE_TO_START_VARIABLE],
+		),
 	};
 	try {
 		queueing.folder.ask(job);

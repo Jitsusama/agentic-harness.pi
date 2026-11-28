@@ -33,6 +33,13 @@ export interface Job {
 	/** When it asked for its turn. */
 	readonly since: string;
 	/**
+	 * When its turn is due to start by, in epoch milliseconds: as its
+	 * command gave it through due-to-start.ts's `DUE_TO_START_VARIABLE`, or
+	 * its kind's bound past `since`. A job an older harness asked for
+	 * carries none, and is due by that bound (due-to-start.ts's `dueBy`).
+	 */
+	readonly dueToStart?: number;
+	/**
 	 * The token of the boot it was asked in, where the machine mints one,
 	 * so a queue folder that outlasts a reboot sets it aside after one.
 	 */
