@@ -5,7 +5,10 @@ import {
 	type HeldTree,
 	type TreeProvider,
 } from "../../../lib/core/work/broker.ts";
-import type { TreeMemory } from "../../../lib/core/work/memory.ts";
+import {
+	BeingRemoved,
+	type TreeMemory,
+} from "../../../lib/core/work/memory.ts";
 import { StuckAside } from "../../../lib/core/work/stranded.ts";
 import { type TreeRequest, treeIdentity } from "../../../lib/core/work/tree.ts";
 
@@ -80,6 +83,7 @@ function remembering(held: HeldTree, others: number[]): TreeMemory {
 		holdWhileUnheld: async () => undefined,
 		whileUnusedSince: async () => undefined,
 		askedAt: () => undefined,
+		removalUnderWay: async () => false,
 		reownSession: async () => 0,
 	};
 }
@@ -293,6 +297,30 @@ describe("a worktree somebody else is working in", () => {
 		expect(broker.cutHere("/trees/theirs"), "a taken tree is held here").toBe(
 			false,
 		);
+	});
+
+	it("says a tree a sweep is removing is gone, and drops it", async () => {
+		const theirs: HeldTree = {
+			identity: treeIdentity(snapshot("abc123")),
+			path: "/trees/theirs",
+			providerId: "git-worktree",
+		};
+		const { provider } = fakeProvider("git-worktree");
+		const memory: TreeMemory = {
+			...remembering(theirs, []),
+			rememberHeldByUs: async (tree) => {
+				throw new BeingRemoved(tree.path);
+			},
+		};
+		const broker = createTreeBroker({ providers: [provider], memory });
+
+		const stands = await broker.used(theirs);
+
+		expect(stands, "a tree being removed reads as standing").toBe(false);
+		expect(
+			broker.cutHere("/trees/theirs"),
+			"a tree being removed is held here",
+		).toBe(false);
 	});
 
 	it("reads whether a tree stands only once its use is written, so a take meanwhile is seen", async () => {

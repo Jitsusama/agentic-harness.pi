@@ -102,7 +102,7 @@ import {
 	whyGitKeeps,
 } from "./sweep-take.ts";
 import { orphanedTrees } from "./tidy.ts";
-import { pinnedCommit } from "./tree.ts";
+import { isSnapshot, pinnedCommit } from "./tree.ts";
 
 /** The provider a git worktree's record names. */
 const GIT_WORKTREE = "git-worktree";
@@ -364,10 +364,10 @@ export interface DroppedRoots {
  * Take back every git worktree the broker cut whose recorded sessions
  * have all ended and that reclaim's rules would take: clean, and merged
  * into trunk or, detached, at a commit some ref holds or a snapshot
- * still at the commit it was cut at. Then every other
- * provider's unshareable tree whose provider says it is spent, through
- * that provider. Says what it took, what was refused and what it kept,
- * tree by tree.
+ * still at the commit it was cut at. Then every other provider's
+ * unshareable tree or snapshot that has sat a day and whose provider
+ * says it is spent, through that provider. Says what it took, what was
+ * refused and what it kept, tree by tree.
  */
 export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 	const outcome: SweepOutcome = {
@@ -725,15 +725,23 @@ function unreadWhy(
  * Such a tree can't be moved aside first: its provider finds it by
  * where it stands, and may have more to undo than the folder, as World
  * resets a tree's processes and datastores. So instead this session
- * becomes its only holder under the record's lock, which makes the
- * broker hand it to nobody else, and the removal runs after. A
- * shareable tree is never taken that way, since another session may
- * join one whoever holds it.
+ * becomes its only holder under the record's lock, marking the record
+ * as being removed, which makes the broker hand it to nobody else: a
+ * session asking for it waits for the removal, which runs after, and
+ * then cuts it afresh.
+ *
+ * A snapshot goes that way too. Kept because a session could join one
+ * whoever holds it, unheld snapshots piled up: on 27 November one
+ * machine held 144 (24.5 GB), 114 of them older than 24 November, and a
+ * sweep kept 96 for that alone. An unheld snapshot pins a commit its
+ * repository already has, so it holds no work. A tree shareable but no
+ * snapshot is still kept, since it may hold work its sessions share.
  *
  * A tree that moved within {@link PUSHED_SETTLE_MS} is kept without
  * asking, as a pushed git worktree is: on 13 November a provider called
  * a live World tree spent, clean on its branch, and the sweep took it
- * while the session working there stood in another folder.
+ * while the session working there stood in another folder. A snapshot
+ * is read, which moves nothing, so one asked for within it is kept too.
  */
 async function releaseThroughProvider(
 	deps: SweepDeps,
@@ -749,13 +757,22 @@ async function releaseThroughProvider(
 		keep("something still holds it");
 		return;
 	}
-	if (tree.identity.shareable) {
-		keep("it is shareable, so a session could join it while it is removed");
+	const snapshot = isSnapshot(tree.identity);
+	if (tree.identity.shareable && !snapshot) {
+		keep(
+			"it is shareable but no snapshot, so it may hold work its sessions share",
+		);
 		return;
 	}
 	const since = (deps.now?.() ?? Date.now()) - PUSHED_SETTLE_MS;
 	if (!treeStillSince(tree.path, since)) {
 		keep("it moved within the last day, so a session may come back to it");
+		return;
+	}
+	if (snapshot && askedSince(deps.memory, tree, since)) {
+		keep(
+			"it was asked for within the last day, so a session may come back to it",
+		);
 		return;
 	}
 	const provider = deps.providers?.().find((one) => one.id === tree.providerId);
@@ -794,6 +811,20 @@ async function releaseThroughProvider(
 		deps.memory.remember(before);
 		outcome.refused.push({ path: tree.path, why: messageOf(error) });
 	}
+}
+
+/**
+ * Whether a tree was asked for after `since`, by its record's `usedAt`
+ * or its file's last write, which every ask makes. An undated record
+ * reads as asked for, which keeps it.
+ */
+function askedSince(
+	memory: TreeMemory,
+	tree: HeldTree,
+	since: number,
+): boolean {
+	const asked = memory.askedAt(tree.path, tree.identity.key);
+	return asked === undefined || Math.max(asked, tree.usedAt ?? 0) > since;
 }
 
 /**

@@ -136,6 +136,18 @@ describe("a session resumed in a new host", () => {
 		expect(memory.recall()[0]?.owners).toEqual([lane]);
 	});
 
+	it("leaves a tree its earlier process was removing as a sweep", async () => {
+		// The removal ended with the process, and a mark re-owned would
+		// read as one still running, holding every asker back.
+		const memory = memoryAt();
+		memory.remember({ ...tree("removing", [], BEFORE), removing: 1000 });
+
+		const changed = await memory.reownSession("a", facts);
+
+		expect(changed).toBe(0);
+		expect(memory.recall()[0]?.owners).toEqual([BEFORE]);
+	});
+
 	it("leaves another session's tree", async () => {
 		const memory = memoryAt();
 		const theirs = { ...BEFORE, session: "b" };

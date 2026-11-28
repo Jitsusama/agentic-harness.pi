@@ -136,10 +136,17 @@ const FULL_COMMIT = /-([0-9a-f]{40})$/;
  * A commit id passes {@link slug} unchanged, so the key holds it whole.
  */
 export function pinnedCommit(identity: TreeIdentity): string | undefined {
-	if (!identity.shareable || !identity.key.startsWith("snapshot-")) {
-		return undefined;
-	}
+	if (!isSnapshot(identity)) return undefined;
 	return FULL_COMMIT.exec(identity.key)?.[1];
+}
+
+/**
+ * Whether a tree is a snapshot, as {@link treeIdentity} names one:
+ * shareable, its key a snapshot's. A tree only shareable could be
+ * something else a provider lets sessions share, which may hold work.
+ */
+export function isSnapshot(identity: TreeIdentity): boolean {
+	return identity.shareable && identity.key.startsWith("snapshot-");
 }
 
 /**

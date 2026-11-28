@@ -864,13 +864,18 @@ describe("trees another provider cut", () => {
 		});
 	});
 
-	it("keeps a shareable one, which a session could join mid-removal", async () => {
+	it("keeps a shareable one that is no snapshot, which may hold shared work", async () => {
 		const { elsewhereTree, sweepWith } = await setUp();
-		const tree = elsewhereTree("dev-snapshot", { shareable: true });
+		const tree = elsewhereTree("dev-shared", { shareable: true });
+		settleFolder(tree);
 
 		const outcome = await sweepWith(elsewhere(undefined));
 
 		expect(outcome.taken).toEqual([]);
+		expect(outcome.kept).toContainEqual({
+			path: tree,
+			why: "it is shareable but no snapshot, so it may hold work its sessions share",
+		});
 		expect(existsSync(tree), `${tree} is kept`).toBe(true);
 	});
 
