@@ -1,4 +1,9 @@
-/** A host's children put together: routes, supervisor and policy, as the backend and its stop use them. */
+/**
+ * A host's children put together: routes, supervisor and policy, as the
+ * backend and its stop use them. Long because it tests one module,
+ * child-hosting.ts, whose ends, end marks and cut-off wakes all read the
+ * same supervisor and fake units, so its cases share one bed.
+ */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

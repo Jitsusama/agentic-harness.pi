@@ -1,4 +1,8 @@
-/** A host's life: refuse before listening, resume what it holds, keep holds on stop. */
+/**
+ * A host's life: refuse before listening, resume what it holds, keep holds
+ * on stop. Long because each case starts and stops a whole host in one
+ * private folder, and its start, stop and wakes are one function's steps.
+ */
 import { randomUUID } from "node:crypto";
 import { access, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
