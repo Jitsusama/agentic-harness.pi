@@ -322,14 +322,32 @@ const WRITABLE_BY_ANYONE = 0o002;
 const RUNTIME_FOLDER = "/run/user/*";
 
 /**
- * What the fence lays in a runtime folder itself, which no grant may
+ * The runtime folders the fence lays for `place`: any account's, and the
+ * session's own wherever it lies, when named absolute and in its
+ * plainest form, as the fence lays only such a one.
+ */
+function runtimeFolders(place: GrantPlace): readonly string[] {
+	const own = place.runtimeDir;
+	const laid =
+		own !== undefined &&
+		isAbsolute(own) &&
+		normalize(own) === own &&
+		own !== "/" &&
+		!own.endsWith("/") &&
+		!holds(RUNTIME_FOLDER, own);
+	return laid ? [RUNTIME_FOLDER, own] : [RUNTIME_FOLDER];
+}
+
+/**
+ * What the fence lays in each runtime folder itself, which no grant may
  * name, hold or lie in: bound again, a door the fence lets through only
  * read-only, or keeps from a language server, would come back as granted.
  */
-const FENCES_OWN: readonly string[] = [
-	...LET_THROUGH,
-	FENCE_RUNTIME_FOLDER,
-].map((name) => `${RUNTIME_FOLDER}/${name}`);
+function fencesOwn(runtime: readonly string[]): readonly string[] {
+	return runtime.flatMap((folder) =>
+		[...LET_THROUGH, FENCE_RUNTIME_FOLDER].map((name) => `${folder}/${name}`),
+	);
+}
 
 /**
  * Why an entry of `read` or `write` lies within an entry of `write`, or
@@ -398,9 +416,10 @@ function entryRefusal(
 		(folder) => holds(entry, folder) || holds(folder, entry),
 	);
 	if (sealed) return `is, holds or lies in ${sealed}`;
-	const whole = WHOLE.find((folder) => holds(entry, folder));
+	const runtime = runtimeFolders(place);
+	const whole = [...WHOLE, ...runtime].find((folder) => holds(entry, folder));
 	if (whole) return `is or holds ${whole}, which the fence needs whole`;
-	const laid = [...SHARED_TEMP, ...FENCES_OWN].find(
+	const laid = [...SHARED_TEMP, ...fencesOwn(runtime)].find(
 		(folder) => holds(entry, folder) || holds(folder, entry),
 	);
 	if (laid) return `is, holds or lies in ${laid}`;
@@ -420,8 +439,10 @@ function entryRefusal(
 	if (worker && (holds(entry, worker) || holds(worker, entry))) {
 		return `is, holds or lies in the worker socket's folder (${worker}), which the fence binds read-only`;
 	}
-	if (use === "write" && holds(RUNTIME_FOLDER, entry)) {
-		return `lies in a runtime folder (${RUNTIME_FOLDER}), whose doors the fence lets through read-only`;
+	const written =
+		use === "write" && runtime.find((folder) => holds(folder, entry));
+	if (written) {
+		return `lies in a runtime folder (${written}), whose doors the fence lets through read-only`;
 	}
 	if (entry === "/dev") return "is /dev, which the fence lays itself";
 	if (use === "read" && holds("/dev", entry)) {

@@ -601,3 +601,81 @@ describe("a World cloud node's grants, as its file is laid", () => {
 		);
 	});
 });
+
+describe("a machine's grants beside a session's runtime folder outside /run/user", () => {
+	/** The session's runtime folder, where no account's lies by default. */
+	const RUNTIME = "/srv/run";
+
+	/** What `entry` granted to `use` gives a session whose runtime folder is `runtimeDir`. */
+	const granted = (
+		use: "read" | "write",
+		entry: string,
+		runtimeDir = RUNTIME,
+	) => {
+		const given = disk(
+			JSON.stringify({ [use]: [entry] }),
+			ROOTS_FILE,
+			ROOTS_FOLDER,
+			0,
+			[],
+			["/srv", "/srv/run", "/srv/elsewhere"],
+		);
+		return {
+			grants: readGrants(
+				{ home: HOME, runtimeDir, repositoryHomes: [] },
+				MACHINE_GRANTS,
+				given,
+			),
+			said: given.said.join("\n"),
+		};
+	};
+
+	it.each([
+		["the runtime folder itself", "read", RUNTIME, `is or holds ${RUNTIME}`],
+		["a folder holding it", "read", "/srv", `is or holds ${RUNTIME}`],
+		[
+			"a folder written in it",
+			"write",
+			`${RUNTIME}/delta`,
+			`lies in a runtime folder (${RUNTIME})`,
+		],
+		[
+			"a door the fence lets through",
+			"read",
+			`${RUNTIME}/pi-agent`,
+			`lies in ${RUNTIME}/pi-agent`,
+		],
+		[
+			"pi's own folder in it",
+			"read",
+			`${RUNTIME}/pi-fence/x`,
+			`lies in ${RUNTIME}/pi-fence`,
+		],
+	] as const)("grant nothing from a file naming %s", (_, use, entry, why) => {
+		const { grants, said } = granted(use, entry);
+		expect(grants, "no grant").toEqual(NONE);
+		expect(said, "why it grants nothing").toContain(why);
+	});
+
+	it("grant a folder beside it, and a token folder in it read", () => {
+		expect(
+			granted("write", "/srv/elsewhere").grants.write,
+			"beside it",
+		).toEqual(["/srv/elsewhere"]);
+		expect(
+			granted("read", `${RUNTIME}/delta`).grants.read,
+			"read in it",
+		).toEqual([`${RUNTIME}/delta`]);
+	});
+
+	it("judge beside no runtime folder named other than in its plainest absolute form", () => {
+		expect(
+			granted("read", "/srv/run", "srv/run").grants.read,
+			"a relative one",
+		).toEqual(["/srv/run"]);
+		expect(
+			granted("read", "/srv/run", "/srv/run/").grants.read,
+			"one ending in a slash",
+		).toEqual(["/srv/run"]);
+	});
+});
