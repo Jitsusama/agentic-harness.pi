@@ -34,7 +34,7 @@ interface Installed {
 	readonly current: string;
 	/** When the link was last moved, `NOW` where unsaid. */
 	readonly moved?: number;
-	/** When the install left each version it marked in `retired/`. */
+	/** When the install left each version folder it marked in `retired/`. */
 	readonly retired?: Record<string, number>;
 }
 
@@ -169,7 +169,49 @@ describe("a carry from code its install has left", () => {
 		expect(behindItsInstall(join(root, "versions", OLD), NOW)).toBeUndefined();
 	});
 
-	it("goes on past a version built after it but never made current, by when the link last moved", () => {
+	// Review of #2403, F16 and F28: the installer marks each folder it
+	// leaves, so a move from one rebuild of a commit to another marks the
+	// commit's first folder though none of its code was left.
+	it.each([
+		[
+			"goes on from a commit whose rebuild the install left within the bar",
+			OLD,
+			{ [OLD]: minutes(3000), [`${OLD}+1795770000`]: minutes(2) },
+			undefined,
+		],
+		[
+			"goes on from a rebuild whose commit's first folder the install left within the bar",
+			`${OLD}+1795770000`,
+			{ [`${OLD}+1795770000`]: minutes(3000), [OLD]: minutes(2) },
+			undefined,
+		],
+		[
+			"waits from a rebuild once the install left each folder of its commit past the bar",
+			`${OLD}+1795770000`,
+			{
+				[`${OLD}+1795770000`]: BEHIND_FOR_MS + minutes(5),
+				[OLD]: minutes(3000),
+			},
+			refusal(`${OLD}+1795770000`, 20, LATEST),
+		],
+	])("%s", (_case, running, retired, expected) => {
+		const root = install({
+			versions: {
+				[`versions/${OLD}`]: minutes(4000),
+				[`versions/${OLD}+1795770000`]: minutes(3500),
+				[`versions/${LATEST}`]: minutes(10),
+			},
+			current: `versions/${LATEST}`,
+			moved: minutes(2),
+			retired,
+		});
+
+		expect(behindItsInstall(join(root, "versions", running), NOW)).toBe(
+			expected,
+		);
+	});
+
+	it("goes on past a version built after it but never made current", () => {
 		const root = install({
 			versions: {
 				[`versions/${OLD}`]: minutes(3000),
@@ -257,6 +299,11 @@ describe("a carry from code its install has left", () => {
 	it.each([
 		["in releases/", `releases/${LATEST}`, `versions/${LATEST}`],
 		["built again", `versions/${LATEST}`, `versions/${LATEST}+1795770000`],
+		[
+			"from a rebuild of it",
+			`versions/${LATEST}+1795770000`,
+			`versions/${LATEST}`,
+		],
 	])("goes on from the commit current names, %s", (_case, running, current) => {
 		const root = install({
 			versions: { [running]: minutes(3000), [current]: minutes(2000) },
