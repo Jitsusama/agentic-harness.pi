@@ -20,7 +20,17 @@
  * could rewrite them.
  *
  * Synchronous, since the sandbox asks it as it wraps each command and
- * checks each file tool's call, both of which answer at once.
+ * checks each file tool's call, both of which answer at once. So each
+ * record is read once a process: on 28 November optimus's ledger held
+ * 1,970 records, 7.7 MB, and reading them all took 229 ms, at every
+ * strict command and every file tool's read, where the strict profile
+ * otherwise costs 20 to 35 ms. Another session may not take a run id
+ * whose record or folder is there (`anotherSessionsRun`), so a record
+ * another session's stays so for as long as its file is listed. One
+ * the sweep removed, folder and all, may be named again by anyone, so
+ * the few records that read as this session's are read again at each
+ * ask, and the one a fleet of this process is about to be named is
+ * forgotten before it runs.
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -50,6 +60,42 @@ function sessionOfRecord(text: string): { id: string; session?: string } {
 	return typeof session === "string" ? { id, session } : { id };
 }
 
+/** What a ledger file was read to say: whose run, and its run id. */
+interface Read {
+	readonly id: string;
+	readonly session?: string;
+}
+
+/**
+ * What each ledger's files said, by ledger folder and file name. Only a
+ * record that read is kept, so one caught half written is read again.
+ */
+const readByLedger = new Map<string, Map<string, Read>>();
+
+/**
+ * What one ledger file says of whose run it holds, read once and kept
+ * while the file is listed; undefined while it won't read, or when its
+ * name isn't the one its own id gives, so a file put there under
+ * another name reaches no folder but its own.
+ */
+function readOf(
+	ledger: string,
+	file: string,
+	known: Map<string, Read>,
+): Read | undefined {
+	const kept = known.get(file);
+	if (kept !== undefined) return kept;
+	try {
+		const record = sessionOfRecord(readFileSync(join(ledger, file), "utf8"));
+		if (file !== `${safeSegment(record.id)}.json`) return undefined;
+		known.set(file, record);
+		return record;
+	} catch {
+		// Gone since the listing, or half written: read again next time.
+		return undefined;
+	}
+}
+
 /**
  * The run folders of the fleets `session` dispatched, as the ledger
  * under `state` holds them: for as long as the ledger keeps a fleet,
@@ -61,37 +107,28 @@ export function ownFleetRuns(
 	state: string = fleetStateDir(),
 ): string[] {
 	if (session === undefined || session === "") return [];
+	const ledger = fleetLedgerDir(state);
 	let files: string[];
 	try {
-		files = readdirSync(fleetLedgerDir(state));
+		files = readdirSync(ledger);
 	} catch {
 		// No ledger at all, as for a session that never ran a fleet.
 		return [];
 	}
+	const known = readByLedger.get(ledger) ?? new Map<string, Read>();
+	readByLedger.set(ledger, known);
+	const listed = new Set(files);
+	// A record the sweep removed reaches nothing, and is forgotten.
+	for (const file of known.keys()) if (!listed.has(file)) known.delete(file);
 	const store = new ReviewerArtifactsStore(state);
 	const runs: string[] = [];
 	for (const file of files) {
 		if (!file.endsWith(".json")) continue;
-		let text: string;
-		try {
-			text = readFileSync(join(fleetLedgerDir(state), file), "utf8");
-		} catch {
-			continue;
-		}
-		// Most records are other sessions', so they go unparsed.
-		if (!text.includes(session)) continue;
-		try {
-			const record = sessionOfRecord(text);
-			// Only the record its own id names, so a file put there under
-			// another name gives no folder but its own.
-			if (
-				record.session === session &&
-				file === `${safeSegment(record.id)}.json`
-			) {
-				runs.push(store.rootPaths(record.id).runDir);
-			}
-		} catch {
-			// A record that won't read reaches nothing.
+		// What reached this session's folder is checked again each time.
+		if (known.get(file)?.session === session) known.delete(file);
+		const record = readOf(ledger, file, known);
+		if (record?.session === session) {
+			runs.push(store.rootPaths(record.id).runDir);
 		}
 	}
 	return runs;
@@ -109,7 +146,11 @@ export function anotherSessionsRun(
 	session: string | undefined,
 	state: string = fleetStateDir(),
 ): boolean {
-	const record = join(fleetLedgerDir(state), `${safeSegment(runId)}.json`);
+	const file = `${safeSegment(runId)}.json`;
+	const record = join(fleetLedgerDir(state), file);
+	// This process may be about to write the record anew, so what it
+	// last read of it says nothing.
+	readByLedger.get(fleetLedgerDir(state))?.delete(file);
 	let text: string | undefined;
 	try {
 		text = readFileSync(record, "utf8");
