@@ -349,6 +349,7 @@ export function fenceRunText(
 		npmrc: fenceNpmrc(home, runtimeDir),
 		docker: dockerHoldsCredentials(home),
 		grants,
+		...worker,
 	});
 	return strictText(sandbox.bwrap, root, inner, command, {
 		home,

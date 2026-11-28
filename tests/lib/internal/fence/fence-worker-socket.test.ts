@@ -8,8 +8,10 @@
 import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	realpathSync,
 	rmSync,
 	symlinkSync,
@@ -335,6 +337,39 @@ describe("a strict command on a machine whose node serves a worker socket", () =
 			"pi-fence's strict run was handed a refused socket",
 		).not.toContain("MYCELIUM_WORKER_SOCKET");
 	});
+
+	// The root binds only folders the real disk holds, so this runs on a
+	// node with its worker folder and is skipped on a machine without one.
+	it.skipIf(!existsSync(WORKER_SOCKET_FOLDER))(
+		"is bound into the root pi-fence's strict run lays, as Landlock is told of it",
+		() => {
+			const made = fenceRunText(
+				{ kind: "strict", folder: join(base, "work"), words: ["true"] },
+				{
+					env: naming(WORKER, undefined),
+					home: join(base, "home"),
+					platform: "linux",
+					sandbox: {
+						kind: "fence",
+						bwrap: "/bin/bwrap",
+						landrun: "/bin/landrun",
+						workerSockets: diskWith({ sockets: [WORKER] }),
+						grants: GRANTING_NONE,
+					},
+				},
+			);
+			if (!("text" in made)) throw new Error(JSON.stringify(made));
+			// The root's arguments sit in a file bubblewrap reads, NUL between
+			// each, or with no runtime folder to hold one, quoted in the text.
+			const file = /--args 3 3<'([^']+)'/.exec(made.text)?.[1];
+			const root = file
+				? readFileSync(file, "utf8").split("\0").join(" ")
+				: made.text.replaceAll("'", "");
+			expect(root, "the root binds the worker socket's folder").toContain(
+				`--ro-bind ${WORKER_SOCKET_FOLDER} ${WORKER_SOCKET_FOLDER}`,
+			);
+		},
+	);
 
 	it("is handed it in the bubblewrap fence too, the session's own value never, and nothing in a language server's", () => {
 		const fence = (served = false): Sandbox => ({
