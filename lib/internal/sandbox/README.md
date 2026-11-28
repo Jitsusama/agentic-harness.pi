@@ -31,7 +31,13 @@ sandbox its hour-long tokens.
   link, a home, a folder the fence needs whole, `/proc`, `/sys`, `/tmp`,
   `/var/tmp`, `/dev/shm`, a door the fence lets through, a device
   granted to read, a write in a runtime folder or over a named
-  repository home, or any entry lying within a write.
+  repository home, or any entry lying within a write. Its `outbox`
+  names the folder under which each strict session gets one of its
+  own, named by its session id, to write and never run from.
+- **`outbox.ts`**: takes a strict session's outbox out for the node,
+  flat and bounded, as `scripts/pi-outbox.ts` runs it: a plain file
+  held by one name, opened without following a link, within its size
+  and the taking's time, copied as a new file with its sha-256.
 - **`gcloud-broker.ts`**: the hour-long cloud tokens the machine's
   gcloud-broker mints for its agents' account, asked for in the
   background every few minutes for the strict sandbox.

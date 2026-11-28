@@ -380,8 +380,40 @@ describe("a machine's grants to the strict profile", () => {
 		const given = disk(JSON.stringify({ read: [], writes: ["/world"] }));
 		expect(machineGrants(MACHINE_GRANTS, given), "no grant").toEqual(NONE);
 		expect(given.said.join("\n"), "why it grants nothing").toContain(
-			"it names writes, which is neither read nor write",
+			"it names writes, which is none of read, write and outbox",
 		);
+	});
+
+	it("keep an outbox where a written entry may be", () => {
+		const given = disk(
+			JSON.stringify({ write: ["/world"], outbox: "/outbox" }),
+		);
+		expect(machineGrants(MACHINE_GRANTS, given), "the grant").toEqual({
+			read: [],
+			write: ["/world"],
+			outbox: "/outbox",
+		});
+	});
+
+	it.each([
+		[{ outbox: 7 }, "outbox must be a path"],
+		[
+			{ outbox: "/tmp/outbox" },
+			'"/tmp/outbox" under outbox is, holds or lies in /tmp',
+		],
+		[{ outbox: `${HOME}/outbox` }, "under outbox is, holds or lies in a home"],
+		[
+			{ write: ["/world"], outbox: "/world/outbox" },
+			'"/world" and the outbox "/world/outbox" lie one in the other',
+		],
+		[
+			{ read: ["/outbox/keys"], outbox: "/outbox" },
+			'"/outbox/keys" and the outbox "/outbox" lie one in the other',
+		],
+	])("grant nothing from an outbox of %j", (grant, why) => {
+		const given = disk(JSON.stringify(grant));
+		expect(machineGrants(MACHINE_GRANTS, given), "no grant").toEqual(NONE);
+		expect(given.said.join("\n"), "why it grants nothing").toContain(why);
 	});
 
 	it("grant only what a list names, an absent one granting nothing", () => {

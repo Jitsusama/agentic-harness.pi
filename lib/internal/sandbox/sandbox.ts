@@ -143,10 +143,11 @@ import {
 	makeShares,
 	questScratch,
 } from "./quest-folders.ts";
-import { makeSandboxFolders } from "./sandbox-folders.ts";
+import { makeOutbox, makeSandboxFolders } from "./sandbox-folders.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 import { folderGit, heldTree, sessionWorktrees } from "./sandbox-trees.ts";
 import {
+	outboxFolder,
 	type Rule,
 	sandboxFolders,
 	sessionFolderName,
@@ -1024,6 +1025,11 @@ export function wrapFor(
 			const unmade = makeSandboxFolders(home, place.env);
 			if (unmade) return () => refused(unmade);
 			const served = sandbox.served === true;
+			const grants = machineGrants();
+			const unboxed = served
+				? undefined
+				: makeOutbox(outboxFolder(grants, place.env));
+			if (unboxed) return () => refused(unboxed);
 			// A language server runs no one's ask, so it reaches no node.
 			const workerSocket = served
 				? undefined
@@ -1036,7 +1042,7 @@ export function wrapFor(
 				repository: worktreeRepository(place.cwd, home),
 				...(served ? { served } : {}),
 				...(workerSocket ? { workerSocket } : {}),
-				grants: machineGrants(),
+				grants,
 			});
 			// gh reads GH_TOKEN, and git asks its helper for it.
 			const token = sandbox.github?.();
