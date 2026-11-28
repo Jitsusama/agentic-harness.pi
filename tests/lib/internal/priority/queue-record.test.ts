@@ -146,8 +146,8 @@ describe("the machine's queue folder", () => {
 			record().jobs.map((one) => [one.id, one.place, one.pushClass]),
 		).toEqual([
 			["soonest", 1, 0],
-			["build", 2, undefined],
-			["unclassed", 3, 2],
+			["unclassed", 2, 2],
+			["build", 3, undefined],
 		]);
 	});
 

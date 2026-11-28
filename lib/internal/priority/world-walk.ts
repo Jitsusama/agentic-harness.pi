@@ -694,7 +694,18 @@ export function worldWalks(
 	steps: readonly string[],
 	where: Where,
 ): RegExpExecArray[] {
-	const walks: RegExpExecArray[] = [];
+	return worldWalkSteps(steps, where).map(({ walk }) => walk);
+}
+
+/**
+ * The walks {@link worldWalks} reads, each with the place among the
+ * steps of the step that runs it, read in one pass over the steps.
+ */
+export function worldWalkSteps(
+	steps: readonly string[],
+	where: Where,
+): { readonly at: number; readonly walk: RegExpExecArray }[] {
+	const walks: { at: number; walk: RegExpExecArray }[] = [];
 	const world = join(where.home, WORLD_FOLDER);
 	const inWorld = (path: string | undefined) =>
 		path !== undefined && (path === world || path.startsWith(`${world}/`));
@@ -714,7 +725,7 @@ export function worldWalks(
 		return from === undefined ? undefined : resolve(from, expanded);
 	};
 	let folder = where.cwd;
-	for (const whole of steps) {
+	for (const [stepAt, whole] of steps.entries()) {
 		let step = whole.trim();
 		for (let set = SETS.exec(step); set !== null; set = SETS.exec(step)) {
 			const [matched, name = "", raw = ""] = set;
@@ -745,7 +756,7 @@ export function worldWalks(
 		for (const word of (walk[3] ?? "").trim().split(/\s+/)) {
 			if (/^(?:[/~.$]|file:\/\/)/.test(word)) named.push(pathOf(word, at));
 		}
-		if (inWorld(at) || named.some(inWorld)) walks.push(walk);
+		if (inWorld(at) || named.some(inWorld)) walks.push({ at: stepAt, walk });
 	}
 	return walks;
 }
