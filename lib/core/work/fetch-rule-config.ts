@@ -23,7 +23,7 @@ import { packageConfigPath } from "../../internal/paths.ts";
 import { type FetchRule, parseWorkFetches } from "./fetch-rules.ts";
 
 /** The package config's section for the work tool. */
-const WORK_SLUG = "work";
+export const WORK_SLUG = "work";
 
 /**
  * The fetch rule for the checkout whose git folder is `gitDir`, read
@@ -42,10 +42,23 @@ export async function configuredFetchRule(
 	if (!loaded.ok) return undefined;
 	// A section written wrong fetches as it always did; the rest still holds.
 	const { fetches } = parseWorkFetches(loaded.config.sections[WORK_SLUG]);
+	return byGitFolder(fetches, gitDir);
+}
+
+/**
+ * What `keyed` holds for the git folder `gitDir`, as the `work`
+ * section's entries are keyed: by its real path, with no trailing
+ * slash. A checkout's push check (`push-checks.ts`) is found the same
+ * way, so a folder named through a link finds both or neither.
+ */
+export function byGitFolder<T>(
+	keyed: Readonly<Record<string, T>>,
+	gitDir: string,
+): T | undefined {
 	const asked = realPath(gitDir.replace(/(?<=.)\/+$/, ""));
 	// Keyed as written or as the folder really is, since git names it
 	// by its real path and the person may name it through a link.
-	return Object.entries(fetches).find(
+	return Object.entries(keyed).find(
 		([folder]) => folder === asked || realPath(folder) === asked,
 	)?.[1];
 }

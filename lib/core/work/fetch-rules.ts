@@ -136,7 +136,8 @@ function ruleOf(value: unknown): FetchRule | string {
 	};
 }
 
-function withoutTrailingSlash(path: string): string {
+/** `path` with no trailing slash, as the `work` section's keys are taken. */
+export function withoutTrailingSlash(path: string): string {
 	return path.length > 1 ? path.replace(/\/+$/, "") : path;
 }
 

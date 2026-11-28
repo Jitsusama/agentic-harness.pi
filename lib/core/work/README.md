@@ -29,6 +29,25 @@ It drops the session's earlier entry and any holder whose process has
 gone, and keeps every other holder. A tree that lists the session only
 as the runner of the subagent that cut it is left to that subagent.
 
+## The Work Section
+
+The package config's `work` section keys two things by a checkout's
+common git folder, taken by its real path with no trailing slash
+(`byGitFolder` in `fetch-rule-config.ts`):
+
+- `fetches`: how its fetches are made, from a prefetch or behind a
+  command taking the fetch's turn (`fetch-rules.ts`).
+- `pushChecks`: a check run in the tree before each push, as
+  `{"run": "<shell text>", "seconds": 300}`, `seconds` optional
+  (300, at most 900) (`push-checks.ts`). `publish.ts` runs it unless
+  the remote's ref already holds what is pushed, and a check that
+  fails or runs past its time refuses the push, naming the check,
+  how it ended, how to rerun it and its last 40 lines.
+
+An entry written wrong is left out, and that checkout fetches and
+pushes as it always did. `extensions/work-integration/README.md`
+says why each exists and shows the section written out.
+
 ## Folders
 
 - `providers/`: the providers this package ships to cut trees.
