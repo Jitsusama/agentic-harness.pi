@@ -142,4 +142,23 @@ describe("pi's file tools under the machine's grants", () => {
 		);
 		expect(grants.asked, "never asked").toEqual([]);
 	});
+
+	it.each([
+		["write", { read: [], write: [] }, false],
+		["write", { read: ["/srv/r"], write: [] }, false],
+		["write", { read: [], write: ["/srv/w"] }, true],
+		["read", { read: [], write: [] }, false],
+		["read", { read: ["/srv/r"], write: [] }, true],
+		["read", { read: [], write: ["/srv/w"] }, true],
+	] as const)(
+		"name the machine's grants in a %s's refusal only where they reach it: %j",
+		(toolName, grants, named) => {
+			const refusal = asking(toolName, join(base, "elsewhere"), () => grants);
+			expect(refusal, "refused").toContain("didn't run");
+			expect(
+				refusal?.includes("what this machine grants"),
+				`the grants named in: ${refusal}`,
+			).toBe(named);
+		},
+	);
 });

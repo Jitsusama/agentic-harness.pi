@@ -482,6 +482,13 @@ function strictRefusal(
 	const workerSocket = place.served
 		? undefined
 		: fencedWorkerSocket(place.env, place.workerSockets);
+	// A served session's commands take no machine grant, so neither do
+	// its file tools.
+	const grants = place.served
+		? NO_GRANTS
+		: (place.grants ?? machineGrants)(
+				grantPlace(home, place.env.XDG_RUNTIME_DIR, workerSocket),
+			);
 	const reach = fileReach(
 		{
 			home,
@@ -490,13 +497,7 @@ function strictRefusal(
 			cwd,
 			repository: worktreeRepository(cwd, home),
 			...(place.served ? { served: true } : {}),
-			// A served session's commands take no machine grant, so neither
-			// do its file tools.
-			grants: place.served
-				? NO_GRANTS
-				: (place.grants ?? machineGrants)(
-						grantPlace(home, place.env.XDG_RUNTIME_DIR, workerSocket),
-					),
+			grants,
 		},
 		use,
 	)
@@ -511,10 +512,15 @@ function strictRefusal(
 			real === undefined
 				? `where it couldn't be followed: ${CANT_FOLLOW}`
 				: `to ${real}, outside it`;
+		// The machine's grants are named only where they reach this use.
 		const what =
 			use === "write"
-				? "may write only in the working folder, the sandbox's own cache and temporary folder, and what this machine grants to write"
-				: "may read only what its commands may, and the session's skills: the work, the store, the system's and git's settings, and what this machine grants";
+				? grants.write.length > 0
+					? "may write only in the working folder, the sandbox's own cache and temporary folder, and what this machine grants to write"
+					: "may write only in the working folder and the sandbox's own cache and temporary folder"
+				: grants.read.length + grants.write.length > 0
+					? "may read only what its commands may, and the session's skills: the work, the store, the system's and git's settings, and what this machine grants"
+					: "may read only what its commands may, and the session's skills: the work, the store, and the system's and git's settings";
 		return `${SANDBOX_VARIABLE}=${STRICT} holds pi's file tools to its fence: ${toolName} ${what}, and ${path} leads ${where}, so it didn't run.`;
 	}
 	return undefined;
