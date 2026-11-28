@@ -154,9 +154,11 @@ describe("waking a parked peer", () => {
 	it("wakes it for a question re its pivot, from whoever and to wherever", () => {
 		// A session that can't take up a pivot asks a question re it, owed
 		// a turn even from a session whose presence here names no one who
-		// leads it, sent to a group rather than to its address. News re the
-		// pivot from such a session is an old session's ack, left for the
-		// next start.
+		// leads it, sent to a group rather than to its address. Any question
+		// it hears wakes it, re its pivot or not, so this pins the question
+		// rather than the re (#2315's stack round, F7). News re the pivot
+		// from such a session is an old session's ack, left for the next
+		// start.
 		const pivot = message({
 			id: "1-85PKB2-1-pppp",
 			from: "85PKB2",

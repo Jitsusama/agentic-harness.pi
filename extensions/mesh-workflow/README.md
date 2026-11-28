@@ -287,10 +287,11 @@ and can answer a question or a gate left open on screen.
   one withdrawn, what replaced it. Under each question it
   asked, it says who answered and in which message, who is
   answering, or for how long it has gone unanswered. Under each
-  pivot it sent, it says who answered it (a session that can't
-  take it up asks), who has it by read marker, who not yet, and
-  whose take-up is unknown, being on another machine, whose
-  marker stays there. It keeps
+  pivot it sent, it says who can't take it up (a session asks a
+  question re it), who has it by read marker or by anything else
+  it sent re the pivot, who not yet, and whose take-up is
+  unknown, being on another machine, whose marker stays there.
+  It keeps
   the newest that fit in 12 KB, at most 50, and names the
   oldest shown, so `before` with that id reads on.
 - `mesh_join`, `mesh_leave` and `mesh_groups`: the groups this
