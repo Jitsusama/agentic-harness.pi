@@ -1590,6 +1590,53 @@ describe("a session asking for a tree a sweep is removing", () => {
 		expect(asks, "each ask, whether the tree was still going").toEqual([false]);
 	});
 
+	it("refuses, releasing nothing, a part-removed tree a session from before marks joined", async () => {
+		// Code from before marks takes a marked record for a free one and adds
+		// itself as a holder; finishing the removal would pull the tree out
+		// from under that session.
+		// A snapshot, since sessions share one: a worktree with another
+		// running holder is refused before its mark is looked at.
+		const request: TreeRequest = {
+			intent: "snapshot",
+			repo: { key: "github:o/r" },
+			purpose: "joined-stopped",
+			commit: "abc123",
+		};
+		const memory = memoryAt();
+		const released: string[] = [];
+		const broker = createTreeBroker({
+			providers: [provider(released)],
+			memory,
+			goingWaitMs: 5000,
+		});
+		const theirs = await ownerNow(systemFacts, process.ppid);
+		if (theirs === undefined)
+			throw new Error("the parent process can't be read");
+		const path = join(root, "trees", request.purpose);
+		mkdirSync(path, { recursive: true });
+		const tree: HeldTree = {
+			identity: treeIdentity(request),
+			path,
+			providerId: "git",
+			owners: [theirs],
+			going: { at: Date.now(), by: GONE },
+		};
+		memory.remember(tree);
+
+		await expect(
+			broker.ensure(request),
+			"what asking for the tree says",
+		).rejects.toMatchObject({ name: "TreeInUse", path });
+
+		expect(released, "what the provider was asked to release").toEqual([]);
+		expect(existsSync(path), "the joined tree's folder").toBe(true);
+		expect(memory.recall(), "its record").toEqual([tree]);
+		expect(
+			(await memory.heldNow()).map((one) => one.path),
+			"the trees held now",
+		).toEqual([path]);
+	});
+
 	it("refuses a worktree another running session took up while it waited", async () => {
 		// A worktree is one session's at a time; the wait doesn't excuse the
 		// look at who else holds it.

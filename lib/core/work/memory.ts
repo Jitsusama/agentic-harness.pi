@@ -218,7 +218,8 @@ export interface TreeMemory {
 	 * `release` that throws once the folder is gone forgets the records as
 	 * {@link endGoing} does, throwing nothing, so the caller cuts the tree
 	 * afresh. Throws {@link TreeGoing} when another removal of it runs, and
-	 * does nothing when none stopped.
+	 * {@link TreeInUse}, releasing nothing, while a session that joined it
+	 * since the mark still runs; does nothing when none stopped.
 	 */
 	finishGoing(
 		tree: HeldTree,
@@ -358,6 +359,27 @@ export class TreeHalfGone extends Error {
 }
 
 /**
+ * A tree whose removal stopped partway that a session from before marks
+ * joined since and still works in: finishing the removal would pull the
+ * tree out from under it, so it is left until that session ends.
+ */
+export class TreeInUse extends Error {
+	/** The tree left part-removed and joined. */
+	readonly path: string;
+	/** The processes of the sessions working in it. */
+	readonly pids: readonly number[];
+
+	constructor(path: string, pids: readonly number[]) {
+		super(
+			`${path} was left part-removed, and a session joined it since and still works there (pid ${pids.join(", ")}), so it is finished only once that session ends`,
+		);
+		this.name = "TreeInUse";
+		this.path = path;
+		this.pids = pids;
+	}
+}
+
+/**
  * A tree a sweep was still removing when a session's wait for it ran
  * out. Asking again at once under the same identity waits on the same
  * removal, so a caller with another way to the work takes it instead.
@@ -469,8 +491,47 @@ function markedGoing(
 	const { going: _, sessions: __, ...rest } = tree;
 	const at = Date.now();
 	const going: GoingMark =
-		asked === undefined ? { at, by, lock } : { at, by, asked, lock };
+		asked === undefined
+			? { at, by, holder: us, lock }
+			: { at, by, holder: us, asked, lock };
 	return { ...rest, owners: [us], going };
+}
+
+/**
+ * Those a marked record names who joined it since the mark: anyone but
+ * its remover, whether by process, by the holder the mark wrote, or by
+ * that holder's conversation, which a host resumed after a restart
+ * names again under a new process. This code refuses a marked tree to
+ * every session, so only code from before marks wrote these, joining a
+ * tree it took to be free.
+ */
+function joinedSinceMark(tree: HeldTree): readonly Owner[] {
+	const going: unknown = tree.going;
+	if (typeof going !== "object" || going === null) return [];
+	const by = "by" in going && isOwner(going.by) ? going.by : undefined;
+	const holder =
+		"holder" in going && isOwner(going.holder) ? going.holder : undefined;
+	return named(tree).filter(
+		(owner) =>
+			!(by !== undefined && sameOwner(owner, by)) &&
+			!(holder !== undefined && sameOwner(owner, holder)) &&
+			!(holder?.session !== undefined && owner.session === holder.session),
+	);
+}
+
+/**
+ * Whether a session that joined a marked record since its mark still
+ * runs, asked through `once`, so a caller judging many records asks of
+ * each process once.
+ */
+async function joinerStands(
+	tree: HeldTree,
+	once: ProcessFacts,
+): Promise<boolean> {
+	for (const owner of joinedSinceMark(tree)) {
+		if ((await tickedStanding(owner, once)) !== "gone") return true;
+	}
+	return false;
 }
 
 /** What changes about a directory when an entry in it does. */
@@ -648,13 +709,16 @@ function named(tree: HeldTree): readonly Owner[] {
  * A record that names nobody is never spent, since nothing can say so.
  * One a removal still runs on is its remover's, whoever else it names,
  * since in a host the conversation that marked it may close meanwhile;
- * one whose removal stopped is spent, so the next sweep finishes it.
+ * one whose removal stopped is spent, so the next sweep finishes it,
+ * unless a session that joined it since still runs.
  */
 async function spent(tree: HeldTree, facts: ProcessFacts): Promise<boolean> {
-	if (tree.going !== undefined) return !(await goingNow(tree, facts));
+	const once = askedOnceWithTicks(facts === systemFacts ? tickFacts : facts);
+	if (tree.going !== undefined) {
+		return !(await goingNow(tree, facts)) && !(await joinerStands(tree, once));
+	}
 	const owners = named(tree);
 	if (owners.length === 0) return false;
-	const once = askedOnceWithTicks(facts === systemFacts ? tickFacts : facts);
 	const stands = await Promise.all(
 		owners.map((owner) => tickedStanding(owner, once)),
 	);
@@ -1353,9 +1417,15 @@ export function createTreeMemory(
 					const { lock: _, ...going } = one.going;
 					// The mark made the removing session its only holder. Kept, a
 					// live sweep or host would read as another session working in
-					// it, and the tree be refused rather than finished.
+					// it, and the tree be refused rather than finished. One that
+					// joined since is kept, so the tree isn't finished under it.
 					const { owners: __, ...left } = one;
-					this.remember({ ...left, going });
+					const joined = joinedSinceMark(one);
+					this.remember(
+						joined.length === 0
+							? { ...left, going }
+							: { ...left, owners: [...joined], going },
+					);
 					// Its file's time is when it was last asked for, and the mark
 					// and this write aren't asks: left as written, a failed
 					// removal would keep a tree a day as if just asked for.
@@ -1388,6 +1458,22 @@ export function createTreeMemory(
 				if (stopped.length === 0) return;
 				for (const one of stopped) {
 					if (await goingNow(one, facts)) throw new TreeGoing(tree.path);
+				}
+				// A session from before marks may have joined it since, which
+				// the removal would pull it out from under.
+				const once = askedOnceWithTicks(
+					facts === systemFacts ? tickFacts : facts,
+				);
+				const working: number[] = [];
+				for (const one of stopped) {
+					for (const owner of joinedSinceMark(one)) {
+						if ((await tickedStanding(owner, once)) !== "gone") {
+							working.push(owner.pid);
+						}
+					}
+				}
+				if (working.length > 0) {
+					throw new TreeInUse(tree.path, [...new Set(working)]);
 				}
 				// Beside the records, under their locks, so only one session
 				// finishes a removal at a time.
@@ -1457,9 +1543,16 @@ export function createTreeMemory(
 			for (const tree of this.recall()) {
 				// A marked record is its remover's while the removal runs, and
 				// nobody's once it stopped: a failed removal leaves it naming
-				// nobody, and read as held below, no sweep would finish it.
+				// nobody, and read as held below, no sweep would finish it. A
+				// session from before marks that joined it since holds it while
+				// it runs, the remover named or not.
 				if (tree.going !== undefined) {
-					if (await goingNow(tree, facts)) held.push(tree);
+					if (
+						(await goingNow(tree, facts)) ||
+						(await joinerStands(tree, once))
+					) {
+						held.push(tree);
+					}
 					continue;
 				}
 				const owners = named(tree);

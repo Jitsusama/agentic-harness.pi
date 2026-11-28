@@ -263,6 +263,13 @@ export interface GoingMark {
 	 */
 	readonly by: Owner;
 	/**
+	 * The holder the mark made the record's only one: `by`'s conversation
+	 * in a host, `by` itself in plain pi. Anyone else the record names
+	 * since was written there by code that took no mark for a refusal, a
+	 * session still in the tree, which no removal may finish under it.
+	 */
+	readonly holder?: Owner;
+	/**
 	 * When the record was last written before the mark, in milliseconds
 	 * since the epoch, so a removal that fails puts back when it was last
 	 * asked for, not when the sweep marked it.

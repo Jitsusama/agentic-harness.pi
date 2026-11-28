@@ -29,6 +29,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Exec } from "../../../../lib/core/exec/index.ts";
+import type { ProcessFacts } from "../../../../lib/core/process/index.ts";
 import type { TreeProvider } from "../../../../lib/core/work/broker.ts";
 import { DEV_SHELL_IDLE_MS } from "../../../../lib/core/work/dev-shell-roots.ts";
 import type { createTreeMemory } from "../../../../lib/core/work/memory.ts";
@@ -1188,6 +1189,137 @@ describe("trees another provider cut", () => {
 			memory.recall().map((one) => one.path),
 			"the records left",
 		).not.toContain(tree);
+	});
+
+	/**
+	 * A session from before marks, which takes a marked record for a free
+	 * one and joins it, and a machine where it runs while `joiner.runs`
+	 * says so, as this test's own process does.
+	 */
+	function oldCodeJoiner() {
+		const JOINER = { pid: 4003, startedAt: 2500 };
+		const joiner = { runs: true };
+		const facts: ProcessFacts = {
+			alive: (pid) =>
+				(pid === JOINER.pid && joiner.runs) || pid === process.pid,
+			startedAt: async (pid) =>
+				pid === JOINER.pid && joiner.runs
+					? JOINER.startedAt
+					: pid === process.pid
+						? US_STARTED
+						: undefined,
+		};
+		return { JOINER, joiner, facts };
+	}
+
+	it("never releases a tree a session from before marks joined while its removal ran", async () => {
+		const { memory, lockPath, elsewhereTree } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		settleFolder(tree);
+		const { JOINER, joiner, facts } = oldCodeJoiner();
+		let releases = 0;
+		const provider = elsewhere(undefined, async (held) => {
+			releases += 1;
+			if (releases > 1) {
+				rmSync(held.path, { recursive: true, force: true });
+				return;
+			}
+			// It joins while the sweep removes it, keeping the mark it doesn't
+			// know of, and the removal then fails with the folder standing.
+			const [marked] = memory.recall();
+			if (marked === undefined) throw new Error("no record to join");
+			memory.remember({
+				...marked,
+				owners: [...(marked.owners ?? []), JOINER],
+			});
+			throw new Error("its datastores wouldn't reset");
+		});
+		const sweep = () =>
+			sweepEndedTrees({
+				exec,
+				memory,
+				claims: [],
+				lockPath,
+				facts,
+				providers: () => [provider],
+			});
+
+		await sweep();
+		const stopped = memory.recall();
+		const again = await sweep();
+
+		expect(
+			stopped.map((one) => one.owners),
+			"who its stopped record names",
+		).toEqual([[JOINER]]);
+		expect(releases, "how many times it was released").toBe(1);
+		expect(again.taken, "what the next sweep took").toEqual([]);
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+
+		joiner.runs = false;
+		const ended = await sweep();
+
+		expect(releases, "how many times it was released once it ended").toBe(2);
+		expect(
+			ended.taken.map((one) => one.path),
+			"what the sweep took once it ended",
+		).toEqual([tree]);
+		expect(memory.recall(), "the records left").toEqual([]);
+	});
+
+	it("never finishes a stopped removal a session from before marks joined, by a sweep or an ask", async () => {
+		const { memory, lockPath, elsewhereTree } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		settleFolder(tree);
+		const { JOINER, joiner, facts } = oldCodeJoiner();
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("no record was written");
+		const joined = {
+			...record,
+			owners: [JOINER],
+			going: { at: Date.now(), by: ENDED },
+		};
+		memory.remember(joined);
+		let releases = 0;
+		const provider = elsewhere(undefined, async (held) => {
+			releases += 1;
+			rmSync(held.path, { recursive: true, force: true });
+		});
+		const sweep = () =>
+			sweepEndedTrees({
+				exec,
+				memory,
+				claims: [],
+				lockPath,
+				facts,
+				providers: () => [provider],
+			});
+
+		const swept = await sweep();
+		const asking = memory.finishGoing(
+			joined,
+			() => provider.release(joined, {}),
+			facts,
+		);
+
+		await expect(asking, "what finishing it says").rejects.toMatchObject({
+			name: "TreeInUse",
+			pids: [JOINER.pid],
+		});
+		expect(swept.taken, "what the sweep took").toEqual([]);
+		expect(releases, "how many times it was released").toBe(0);
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+		expect(memory.recall(), "its record").toEqual([joined]);
+
+		joiner.runs = false;
+		const ended = await sweep();
+
+		expect(releases, "how many times it was released once it ended").toBe(1);
+		expect(
+			ended.taken.map((one) => one.path),
+			"what the sweep took once it ended",
+		).toEqual([tree]);
+		expect(memory.recall(), "the records left").toEqual([]);
 	});
 
 	it("forgets a tree whose release took its folder and then failed", async () => {
