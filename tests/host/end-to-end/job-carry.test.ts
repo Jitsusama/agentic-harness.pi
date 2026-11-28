@@ -16,12 +16,13 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { isRecord } from "../../../lib/internal/record.ts";
+import { alive, runningWith } from "../../support/processes.ts";
 import { saidAfter, startHeldPi } from "./support/held-pi.ts";
 import { type HostProcess, startHost } from "./support/host-process.ts";
 import {
@@ -88,21 +89,7 @@ function said(): string {
 
 /** The pid of the carried command's follow, by its command and the seal's HOME. */
 function followIn(home: string): number | undefined {
-	for (const name of readdirSync("/proc")) {
-		const pid = Number(name);
-		if (!Number.isInteger(pid)) continue;
-		try {
-			if (
-				readFileSync(`/proc/${pid}/cmdline`, "utf8") !== "tail\0-f\0/dev/null\0"
-			)
-				continue;
-			const env = readFileSync(`/proc/${pid}/environ`, "utf8").split("\0");
-			if (env.includes(`HOME=${home}`)) return pid;
-		} catch {
-			// Gone, or another user's: not the follow asked about.
-		}
-	}
-	return undefined;
+	return runningWith(["tail", "-f", "/dev/null"], `HOME=${home}`);
 }
 
 /**
@@ -127,11 +114,6 @@ async function followUp(home: string): Promise<number> {
 	if (follow === undefined)
 		throw new Error(`the carried command isn't running; ${said()}`);
 	return follow;
-}
-
-/** Whether a process is still there. */
-function alive(pid: number): boolean {
-	return existsSync(`/proc/${pid}`);
 }
 
 /** What the shell keeps of its commands on disk, under the seal's state. */
