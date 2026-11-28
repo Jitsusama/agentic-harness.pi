@@ -29,7 +29,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { getParentPiInstall } from "./install.ts";
+import { getParentPiInstall, type ResolvePiInstallDeps } from "./install.ts";
 
 /**
  * Stable prefix every consumer can grep on to detect the
@@ -91,9 +91,13 @@ export function createSubagentHealthCheck(
  * package folder has gone and the entry script's own package stands in
  * (see `getParentPiInstall`). Read each time rather than at module
  * load, so a healed reading passes and one gone since is named.
+ * `deps` reaches the heal's walk up from the entry script, as
+ * `getParentPiInstall` says; production passes none.
  */
-export function checkSubagentRuntime(): SubagentRuntimeError | null {
-	const install = getParentPiInstall();
+export function checkSubagentRuntime(
+	deps: Pick<ResolvePiInstallDeps, "holdsPackage"> = {},
+): SubagentRuntimeError | null {
+	const install = getParentPiInstall(deps);
 	return createSubagentHealthCheck({
 		paths: [install.node, install.entry, install.packageDir].filter(
 			(p): p is string => typeof p === "string" && p.length > 0,

@@ -1,4 +1,5 @@
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	realpathSync,
@@ -7,7 +8,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installHost, withSession } from "../../../lib/core/session/index.ts";
 import {
@@ -19,6 +20,42 @@ import { sessionHost } from "../../support/session-host.ts";
 const STARTUP_INSTALL_KEY = Symbol.for("pi.subagent.startupPiInstall");
 function clearStartupSnapshot(): void {
 	delete (globalThis as Record<symbol, unknown>)[STARTUP_INSTALL_KEY];
+}
+
+const folders: string[] = [];
+afterEach(() => {
+	for (const folder of folders.splice(0))
+		rmSync(folder, { recursive: true, force: true });
+});
+
+/**
+ * A fresh temp folder, dereferenced as the walk sees it, removed after
+ * the case.
+ */
+function tempFolder(prefix: string): string {
+	const folder = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+	folders.push(folder);
+	return folder;
+}
+
+/**
+ * Whether `dir` is a package's root, answered only inside `root`: the
+ * walk up from an entry script otherwise climbs to the file system's
+ * root, and a package.json in any folder above the temp folder would
+ * answer for the case.
+ */
+function packagesUnder(root: string): (dir: string) => boolean {
+	return (dir) =>
+		(dir === root || dir.startsWith(root + sep)) &&
+		existsSync(join(dir, "package.json"));
+}
+
+/** Write each file under `root`, its folders made as needed. */
+function writeFiles(root: string, files: readonly string[]): void {
+	for (const file of files) {
+		mkdirSync(join(root, file, ".."), { recursive: true });
+		writeFileSync(join(root, file), "{}");
+	}
 }
 
 // A running pi is reached through profile symlinks that a
@@ -139,7 +176,56 @@ describe("resolveParentPiInstall", () => {
 		});
 		expect(install.packageDir).toBe("/home/x/.pi/pkg/pi-0.80.7");
 	});
+
+	// A profile reaches pi's entry script through a linked folder, and the
+	// package that script runs in is the one the link leads to.
+	it("finds the package from the entry's real folder, not the link's", () => {
+		const { root, entry, real } = linkedPackage();
+		const install = resolveParentPiInstall({
+			execPath: process.execPath,
+			argv: [process.execPath, entry],
+			piPackageDir: join(root, "gone-link"),
+			holdsPackage: packagesUnder(root),
+		});
+		expect(install.entry).toBe(join(real, "dist", "cli.js"));
+		expect(install.packageDir).toBe(real);
+	});
+
+	// A package can sit inside another, as a workspace's member does, and
+	// the entry runs in the one nearest it.
+	it("finds the nearest package above the entry script", () => {
+		const root = tempFolder("pi-pkg-");
+		writeFiles(root, [
+			"outer/package.json",
+			"outer/inner/package.json",
+			"outer/inner/dist/cli.js",
+		]);
+		const install = resolveParentPiInstall({
+			execPath: process.execPath,
+			argv: [process.execPath, join(root, "outer", "inner", "dist", "cli.js")],
+			piPackageDir: join(root, "gone-link"),
+			holdsPackage: packagesUnder(root),
+		});
+		expect(install.packageDir).toBe(join(root, "outer", "inner"));
+	});
 });
+
+/**
+ * A package whose entry script is reached through a linked folder, as a
+ * profile reaches it, with a package.json of the profile's own on the
+ * link's side, so a walk from the linked path finds the wrong package.
+ */
+function linkedPackage(): { root: string; entry: string; real: string } {
+	const root = tempFolder("pi-pkg-");
+	const real = join(root, "store", "pi-0.80.7");
+	writeFiles(root, [
+		"store/pi-0.80.7/package.json",
+		"store/pi-0.80.7/dist/cli.js",
+		"profile/package.json",
+	]);
+	symlinkSync(join(real, "dist"), join(root, "profile", "pi"));
+	return { root, entry: join(root, "profile", "pi", "cli.js"), real };
+}
 
 // The startup accessor is what production spawns and the health
 // check use. It must capture the install once, before a
@@ -186,7 +272,7 @@ describe("getParentPiInstall", () => {
 	// reload; it heals from the entry, for its children and for pi itself.
 	it("heals a snapshot whose package went, and says so in PI_PACKAGE_DIR", () => {
 		const previous = process.env.PI_PACKAGE_DIR;
-		const root = mkdtempSync(join(tmpdir(), "pi-pkg-"));
+		const root = tempFolder("pi-pkg-");
 		mkdirSync(join(root, "dist"));
 		writeFileSync(join(root, "package.json"), "{}");
 		writeFileSync(join(root, "dist", "cli.js"), "");
@@ -209,7 +295,7 @@ describe("getParentPiInstall", () => {
 	});
 
 	it("heals no snapshot from an entry script that is gone too", () => {
-		const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-pkg-")));
+		const root = tempFolder("pi-pkg-");
 		mkdirSync(join(root, "dist"));
 		writeFileSync(join(root, "package.json"), "{}");
 		const install = {
@@ -221,12 +307,48 @@ describe("getParentPiInstall", () => {
 		expect(getParentPiInstall()).toBe(install);
 	});
 
+	// A heal that finds no package leaves the snapshot, and the variable
+	// naming its package, as they were: the check then names the folder
+	// gone rather than a guess.
+	it("heals no snapshot when no folder above its entry holds a package", () => {
+		const root = tempFolder("pi-pkg-");
+		writeFiles(root, ["dist/cli.js"]);
+		const gone = join(root, "gone-link");
+		process.env.PI_PACKAGE_DIR = gone;
+		const install = {
+			node: process.execPath,
+			entry: join(root, "dist", "cli.js"),
+			packageDir: gone,
+		};
+		(globalThis as Record<symbol, unknown>)[STARTUP_INSTALL_KEY] = install;
+		expect(getParentPiInstall({ holdsPackage: packagesUnder(root) })).toBe(
+			install,
+		);
+		expect(process.env.PI_PACKAGE_DIR).toBe(gone);
+	});
+
+	// A snapshot's entry reached through a link heals to the package the
+	// link leads to, not one on the link's side of the path.
+	it("heals from the entry's real folder when a link leads to it", () => {
+		const { root, entry, real } = linkedPackage();
+		const gone = join(root, "gone-link");
+		process.env.PI_PACKAGE_DIR = gone;
+		(globalThis as Record<symbol, unknown>)[STARTUP_INSTALL_KEY] = {
+			node: process.execPath,
+			entry,
+			packageDir: gone,
+		};
+		const healed = getParentPiInstall({ holdsPackage: packagesUnder(root) });
+		expect(healed.packageDir).toBe(real);
+		expect(process.env.PI_PACKAGE_DIR).toBe(real);
+	});
+
 	// A first capture taken after the link went finds the package from
 	// the entry, and pi itself must read its assets from there too.
 	it("says a package found on a first capture in PI_PACKAGE_DIR", () => {
 		const previous = process.env.PI_PACKAGE_DIR;
 		const previousEntry = process.argv[1];
-		const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-pkg-")));
+		const root = tempFolder("pi-pkg-");
 		mkdirSync(join(root, "dist"));
 		writeFileSync(join(root, "package.json"), "{}");
 		writeFileSync(join(root, "dist", "cli.js"), "");
@@ -236,7 +358,8 @@ describe("getParentPiInstall", () => {
 			expect(getParentPiInstall().packageDir).toBe(root);
 			expect(process.env.PI_PACKAGE_DIR).toBe(root);
 		} finally {
-			process.argv[1] = previousEntry ?? "";
+			if (previousEntry === undefined) process.argv.splice(1);
+			else process.argv[1] = previousEntry;
 			if (previous === undefined) delete process.env.PI_PACKAGE_DIR;
 			else process.env.PI_PACKAGE_DIR = previous;
 		}
@@ -244,8 +367,8 @@ describe("getParentPiInstall", () => {
 
 	it("leaves PI_PACKAGE_DIR as named when its folder stands", () => {
 		const previous = process.env.PI_PACKAGE_DIR;
-		const target = realpathSync(mkdtempSync(join(tmpdir(), "pi-pkg-")));
-		const link = join(mkdtempSync(join(tmpdir(), "pi-link-")), "pi-0.80.7");
+		const target = tempFolder("pi-pkg-");
+		const link = join(tempFolder("pi-link-"), "pi-0.80.7");
 		symlinkSync(target, link);
 		process.env.PI_PACKAGE_DIR = link;
 		try {
@@ -260,8 +383,8 @@ describe("getParentPiInstall", () => {
 	// The usual order of an upgrade: pi captured its install while the
 	// link stood, taking the link's target, and the link went after.
 	it("says the snapshot's package in PI_PACKAGE_DIR once the link it named goes", () => {
-		const target = realpathSync(mkdtempSync(join(tmpdir(), "pi-pkg-")));
-		const link = join(mkdtempSync(join(tmpdir(), "pi-link-")), "pi-0.80.7");
+		const target = tempFolder("pi-pkg-");
+		const link = join(tempFolder("pi-link-"), "pi-0.80.7");
 		symlinkSync(target, link);
 		process.env.PI_PACKAGE_DIR = link;
 		const first = getParentPiInstall();
@@ -273,8 +396,8 @@ describe("getParentPiInstall", () => {
 	// The entry sits in a package of its own, so a snapshot healed while
 	// its package stands would move to that package and fail here.
 	it("leaves a snapshot whose package stands as it is", () => {
-		const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-pkg-")));
-		const other = realpathSync(mkdtempSync(join(tmpdir(), "pi-other-")));
+		const root = tempFolder("pi-pkg-");
+		const other = tempFolder("pi-other-");
 		mkdirSync(join(other, "dist"));
 		writeFileSync(join(other, "package.json"), "{}");
 		writeFileSync(join(other, "dist", "cli.js"), "");
@@ -289,7 +412,7 @@ describe("getParentPiInstall", () => {
 
 	it("captures once and ignores later environment changes", () => {
 		const previous = process.env.PI_PACKAGE_DIR;
-		const atStartup = realpathSync(mkdtempSync(join(tmpdir(), "pi-pkg-")));
+		const atStartup = tempFolder("pi-pkg-");
 		process.env.PI_PACKAGE_DIR = atStartup;
 		try {
 			const first = getParentPiInstall();
@@ -307,7 +430,7 @@ describe("getParentPiInstall", () => {
 
 	it("survives a reload: a fresh module instance reuses the first snapshot", async () => {
 		const previous = process.env.PI_PACKAGE_DIR;
-		const atStartup = realpathSync(mkdtempSync(join(tmpdir(), "pi-pkg-")));
+		const atStartup = tempFolder("pi-pkg-");
 		process.env.PI_PACKAGE_DIR = atStartup;
 		try {
 			const first = getParentPiInstall();
