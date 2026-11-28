@@ -7,7 +7,9 @@
  * everything past the material stubbed, so what is tried is only what
  * the round reads after its wait. The tree stub answers as the work
  * broker does: the same folder for a commit while it stands, dated by
- * each ask, and a new one once a sweep took it.
+ * each ask, and a new one once a sweep took it. A council whose brief
+ * fits a room reads its room again after the wait too, from what it
+ * built again, so a room is asked of the head and the tree it reads.
  */
 
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
@@ -15,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { askCouncil } from "../../../../extensions/review-integration/tools/ask-council.ts";
+import { ROOM_ROUND } from "../../../../extensions/review-integration/tools/ask-round.ts";
 import { askStack } from "../../../../extensions/review-integration/tools/ask-stack.ts";
 
 /** What the stubs read and record, set by each case. */
@@ -56,6 +59,22 @@ const state = vi.hoisted(() => ({
 	stackRead: [] as (string | undefined)[][],
 	/** The folder each started round's reviewers start in. */
 	startedIn: [] as string[],
+	/** The folder each commit's tree stands in, while it stands. */
+	folders: new Map<string, string>(),
+	/** Whether a council's brief fits a room. */
+	roomFits: false,
+	/** Whether a room is answered only to the first ask, and none after. */
+	roomGoesAfterFirst: false,
+	/** Each room asked for: the head, and the folder its harness reads. */
+	roomAsks: [] as { head: string | undefined; folder: string }[],
+	/** What each room ask answered, in order. */
+	rooms: [] as unknown[],
+	/** The room each start was asked with, in order. */
+	startRooms: [] as unknown[],
+	/** The room each started council's reviewers run on. */
+	roomsGiven: [] as unknown[],
+	/** How many times the change was read. */
+	materials: 0,
 }));
 
 vi.mock(
@@ -73,26 +92,42 @@ vi.mock(
 
 vi.mock(
 	"../../../../extensions/review-integration/tools/ask-round.ts",
-	async (importOriginal) => ({
-		...(await importOriginal<
-			typeof import("../../../../extensions/review-integration/tools/ask-round.ts")
-		>()),
-		claimIdentities: async () => undefined,
-		chartersFor: async () => {
-			if (state.lensBreaks)
-				throw new Error("The repo's lens couldn't be read.");
-			return new Map();
-		},
-		awaitRosterStart: async () => {
-			state.during();
-			return {
-				...(state.noWait ? {} : { waited: "It waited 3 hours for its start." }),
-				release: async () => {
-					state.released += 1;
-				},
-			};
-		},
-	}),
+	async (importOriginal) => {
+		const actual =
+			await importOriginal<
+				typeof import("../../../../extensions/review-integration/tools/ask-round.ts")
+			>();
+		return {
+			...actual,
+			material: async (bound: Parameters<typeof actual.material>[0]) => {
+				state.materials += 1;
+				return await actual.material(bound);
+			},
+			claimIdentities: async () => undefined,
+			chartersFor: async () => {
+				if (state.lensBreaks)
+					throw new Error("The repo's lens couldn't be read.");
+				return new Map();
+			},
+			awaitRosterStart: async (
+				_change: string,
+				_signal: unknown,
+				_kind: string,
+				room?: unknown,
+			) => {
+				state.startRooms.push(room);
+				state.during();
+				return {
+					...(state.noWait
+						? {}
+						: { waited: "It waited 3 hours for its start." }),
+					release: async () => {
+						state.released += 1;
+					},
+				};
+			},
+		};
+	},
 );
 
 vi.mock(
@@ -109,12 +144,20 @@ vi.mock(
 				if (commit === state.treeRefuses) {
 					return { refusal: `No tree can be cut at ${commit}.` };
 				}
-				const path = join(state.root, `snapshot-${commit}`);
-				if (!existsSync(path)) {
-					mkdirSync(path);
-					state.cuts.push(commit);
-					state.trees.push(path);
+				const standing = state.folders.get(commit);
+				if (standing !== undefined && existsSync(standing)) {
+					return { path: standing };
 				}
+				// A folder of its own for each cut, as the broker names a
+				// recut tree afresh, so a round still reading the old one shows.
+				const path = join(
+					state.root,
+					`snapshot-${commit}-${state.cuts.length}`,
+				);
+				mkdirSync(path);
+				state.folders.set(commit, path);
+				state.cuts.push(commit);
+				state.trees.push(path);
 				return { path };
 			},
 		};
@@ -177,7 +220,21 @@ vi.mock(
 		...(await importOriginal<
 			typeof import("../../../../extensions/review-integration/tools/ask-room.ts")
 		>()),
-		briefFitsARoom: () => false,
+		briefFitsARoom: () => state.roomFits,
+		roomHarness: (folder: string) => ({ root: folder, entryLoads: [] }),
+		roomFor: async (
+			_change: unknown,
+			head: string | undefined,
+			harnessOf: () => { root: string },
+		) => {
+			state.roomAsks.push({ head, folder: harnessOf().root });
+			const gone = state.roomGoesAfterFirst && state.roomAsks.length > 1;
+			const room = gone
+				? undefined
+				: { place: { machine: `room-${state.roomAsks.length}` }, head };
+			state.rooms.push(room);
+			return room;
+		},
 	}),
 );
 
@@ -198,8 +255,16 @@ vi.mock(
 		...(await importOriginal<
 			typeof import("../../../../extensions/review-integration/tools/ask-reviewer.ts")
 		>()),
-		deps: (_change: unknown, path: string) => {
+		deps: (
+			_change: unknown,
+			path: string,
+			_watch: unknown,
+			_charters: unknown,
+			_billTo: unknown,
+			room?: unknown,
+		) => {
 			state.startedIn.push(path);
+			state.roomsGiven.push(room);
 			return { ask: async () => undefined, warmed: async () => undefined };
 		},
 	}),
@@ -309,6 +374,14 @@ beforeEach(() => {
 	state.witnessed = [];
 	state.stackRead = [];
 	state.startedIn = [];
+	state.folders = new Map();
+	state.roomFits = false;
+	state.roomGoesAfterFirst = false;
+	state.roomAsks = [];
+	state.rooms = [];
+	state.startRooms = [];
+	state.roomsGiven = [];
+	state.materials = 0;
 });
 
 afterEach(() => {
@@ -430,6 +503,77 @@ describe("a council that waited for its start", () => {
 			"While it waited, the tree it was to read was gone, so it was cut again.",
 		);
 		expect(state.released).toBe(0);
+	});
+});
+
+describe("a council whose reviewers run on a room", () => {
+	beforeEach(() => {
+		state.roomFits = true;
+	});
+
+	it("asks for its room again at the head the change moved to while it waited", async () => {
+		state.during = () => state.heads.set(CHANGE, B);
+
+		await council();
+
+		expect(state.startRooms, "its start asked for a room").toEqual([
+			ROOM_ROUND,
+		]);
+		expect(
+			state.roomAsks.map((ask) => ask.head),
+			"asked again at the head now",
+		).toEqual([A, B]);
+		expect(
+			state.roomsGiven,
+			"its reviewers run on the room asked again",
+		).toEqual([state.rooms[1]]);
+		expect(state.witnessed).toEqual([B]);
+	});
+
+	it("asks for its room again with the tree cut again when its folder went while it waited", async () => {
+		state.during = () =>
+			rmSync(state.trees[0] ?? "", { recursive: true, force: true });
+
+		await council();
+
+		expect(state.cuts).toEqual([A, A]);
+		expect(state.trees[1]).not.toBe(state.trees[0]);
+		expect(
+			state.roomAsks.map((ask) => ask.folder),
+			"its harness reads the folder cut again",
+		).toEqual([state.trees[0], state.trees[1]]);
+		expect(state.startedIn).toEqual([state.trees[1]]);
+		expect(state.roomsGiven).toEqual([state.rooms[1]]);
+	});
+
+	it("waits again here when its room went while it waited, and reads the change again after", async () => {
+		state.roomGoesAfterFirst = true;
+
+		await council();
+
+		expect(state.released, "the room's start is given back").toBe(1);
+		expect(state.startRooms, "and one asked without a room").toEqual([
+			ROOM_ROUND,
+			undefined,
+		]);
+		expect(state.materials, "read again after each wait").toBe(3);
+		expect(state.asks, "and built again after each").toEqual([A, A, A]);
+		expect(state.prompted).toEqual([A, A, A]);
+		expect(state.roomsGiven, "its reviewers run here").toEqual([undefined]);
+		expect(state.witnessed).toEqual([A]);
+	});
+
+	it("asks for its room again but builds nothing again when it didn't wait", async () => {
+		state.noWait = true;
+
+		await council();
+
+		expect(state.roomAsks.map((ask) => ask.head)).toEqual([A, A]);
+		expect(state.materials, "the change read once").toBe(1);
+		expect(state.asks, "and its tree asked for once").toEqual([A]);
+		expect(state.prompted).toEqual([A]);
+		expect(state.released).toBe(0);
+		expect(state.roomsGiven).toEqual([state.rooms[1]]);
 	});
 });
 

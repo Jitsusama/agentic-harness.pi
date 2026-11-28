@@ -215,7 +215,12 @@ describe("what a round spends", () => {
 		// than the throwaway one it ran under, which is a run id the
 		// ledger never names.
 		expect(source).toContain("runId: billTo ?? context.runId");
-		expect(source.split("charters, held.id)").length - 1).toBe(2);
+		// Both of a retry's branches, the judge's and the reviewer's,
+		// bill the held round, whatever the reviewer's adds after it.
+		expect(
+			source.match(/deps\([^)]*, charters, held\.id[,)]/g),
+			"each retry branch bills the held round",
+		).toHaveLength(2);
 		// And a round started and left running is counted when it is
 		// collected, since nothing else ever sees what it cost.
 		expect(
