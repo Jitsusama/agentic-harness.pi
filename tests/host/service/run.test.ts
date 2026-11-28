@@ -1260,7 +1260,7 @@ describe("runHost", () => {
 			expect(said[0]).toMatch(/^\d+\.\d s: building the engine$/);
 			expect(said[1]).toMatch(/^\d+\.\d s: resuming 1 of 1: /);
 			expect(said[2]).toMatch(
-				/^\d+\.\d s: resumed 1 of 1 in \d+\.\d s \(ask \d+\.\d s, gate \d+\.\d s, rest \d+\.\d s\)$/,
+				/^\d+\.\d s: resumed 1 of 1 in \d+\.\d s \(ask \d+\.\d s, gate \d+\.\d s, left \d+\.\d s, rest \d+\.\d s\)$/,
 			);
 			// This engine's resume registers nothing, so the host runs none and
 			// counts the one it holds parked, as its list would show it.
@@ -1304,7 +1304,7 @@ describe("runHost", () => {
 		try {
 			const line = said.find((each) => each.includes("resumed 1 of 1"));
 			expect(line, `the resume of ${sessionId} is said`).toMatch(
-				/ \(ask \d+\.\d s, gate \d+\.\d s, log \d+\.\d s, runtime (\d+\.\d) s, rest (\d+\.\d) s\)$/,
+				/ \(ask \d+\.\d s, gate \d+\.\d s, left \d+\.\d s, log \d+\.\d s, runtime (\d+\.\d) s, rest (\d+\.\d) s\)$/,
 			);
 			const [, runtime, rest] =
 				line?.match(/runtime (\d+\.\d) s, rest (\d+\.\d) s/) ?? [];
@@ -1370,7 +1370,7 @@ describe("runHost", () => {
 					said.find((line) => line.includes(`resumed ${number} of 3`)),
 					"its phases alone",
 				).toMatch(
-					/ \(ask \d+\.\d s, gate \d+\.\d s, log \d+\.\d s, rest \d+\.\d s\)$/,
+					/ \(ask \d+\.\d s, gate \d+\.\d s, left \d+\.\d s, log \d+\.\d s, rest \d+\.\d s\)$/,
 				);
 		} finally {
 			second.emit("SIGTERM");

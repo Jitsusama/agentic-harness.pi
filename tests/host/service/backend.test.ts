@@ -941,6 +941,7 @@ describe("hostBackend", () => {
 				).toEqual([
 					`${id} ask`,
 					`${id} gate`,
+					`${id} left`,
 					`${id} log`,
 					`${id} screen`,
 					`${id} resumed`,
