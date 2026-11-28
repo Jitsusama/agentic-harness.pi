@@ -63,7 +63,11 @@ import {
 	presencesHere,
 	windowPlaceFor,
 } from "../window-place.ts";
-import { defaultWorkspaceRoot, strictFolderOf } from "../workspace.ts";
+import {
+	defaultWorkspaceRoot,
+	strictFolderOf,
+	workspaceDirOf,
+} from "../workspace.ts";
 import { nameBudgetFromFolder, namedBy } from "./budget.ts";
 import { needsOf } from "./needs.ts";
 import {
@@ -508,6 +512,11 @@ async function spawnNaming(
 		// elsewhere carries them in its start, and opens no window.
 		const local = isThisMachine(machine);
 		const token = local ? leftUnder(uuidv7()) : undefined;
+		// One elsewhere the call named no folder for begins in the quest's
+		// scratch there, not in a folder found here.
+		const scratch = given
+			? undefined
+			: workspaceDirOf(defaultWorkspaceRoot(), questIdForSpawn);
 		const held = await spawnHeld({
 			machine,
 			needs,
@@ -515,6 +524,7 @@ async function spawnNaming(
 			...(sandbox ? { sandbox } : {}),
 			command,
 			cwd,
+			...(scratch ? { scratch } : {}),
 			home: homedir(),
 			questId: questIdForSpawn,
 			...(token ? { firstWords: token } : {}),
