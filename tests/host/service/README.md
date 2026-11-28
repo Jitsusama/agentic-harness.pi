@@ -96,6 +96,16 @@ of their own: while one conversation holds its child's thread for 3 s,
 the host answers a list, and the other conversation takes a turn and
 draws a window's first frame, each within 1 s. It is in the process
 lane.
+heap-summary.test.ts writes real snapshots in a node process of its
+own from support/marked-heap.ts, which holds a known marker string and
+a thousand instances of one class: the summary counts the class and one
+more large string, holds no slice of the marker while the raw file
+does, and is the same summed in its own process, owner-only and never
+written over; a cut file and synthetic snapshots check what is refused
+and which kinds are named. It is in the process lane.
+heap-snapshot.test.ts checks where a snapshot, its `.raw` folder and
+summary go, how private each is, the sweep of both, and that a failed
+sum keeps the raw file, with the sum injected so nothing is spawned.
 killed-host.test.ts runs a host in a node process of its own, kills it
 with SIGKILL after two opens, and starts the next host of the key here:
 it takes over the left lock and socket and resumes both holds. It is in

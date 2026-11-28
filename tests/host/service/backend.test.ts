@@ -242,6 +242,8 @@ describe("hostBackend", () => {
 			snapshots: {
 				folder: join(dir, "heap-snapshots"),
 				write: (file) => wrote.push(file),
+				// Summed elsewhere: a sum spawns node, which the unit lane never does.
+				sum: () => Promise.resolve(),
 			},
 		});
 		const running = parseOpenResult(await backend.execute(anOpen()));
@@ -259,11 +261,17 @@ describe("hostBackend", () => {
 		);
 		expect(answer).toMatchObject({ sessionId: running.sessionId, bytes: 0 });
 		expect(wrote).toEqual([answer.file]);
-		expect(said).toEqual([
-			expect.stringMatching(
-				`^Wrote a heap snapshot of conversation ${running.sessionId}'s process, .*, asked by scripts/host-memory\\.ts over the control socket; `,
-			),
-		]);
+		expect(answer.summary, "a summary named").toBeDefined();
+		await vi.waitFor(() =>
+			expect(said).toEqual([
+				expect.stringMatching(
+					`^Wrote a heap snapshot of conversation ${running.sessionId}'s process, .*, asked by scripts/host-memory\\.ts over the control socket; `,
+				),
+				expect.stringMatching(
+					/^Summed heap snapshot .+ into .+\.summary\.json in \d+ ms$/,
+				),
+			]),
+		);
 
 		host.state(running.sessionId, "busy");
 		await expect(snapshot(running.sessionId)).rejects.toThrow("is busy");
@@ -285,6 +293,8 @@ describe("hostBackend", () => {
 			snapshots: {
 				folder: join(dir, "heap-snapshots"),
 				write: (file) => wrote.push(file),
+				// Summed elsewhere: a sum spawns node, which the unit lane never does.
+				sum: () => Promise.resolve(),
 			},
 		});
 		const running = parseOpenResult(await backend.execute(anOpen()));
