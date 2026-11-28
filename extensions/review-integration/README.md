@@ -268,6 +268,12 @@ a unit outside the harness fills it. A refusal names the mirrors it
 asked and any it couldn't read. Whatever fills the folder is
 trusted as this machine's own ledger is.
 
+The findings of a mirrored round that counts for a hosted change,
+read from `findings-from/<node>/`, are adopted under that change
+when they are listed or decided, once each and named with their
+node, with its answers from `answers-from/<node>/`
+(`adopt-mirrored.ts`).
+
 ### When a Queued Change Lands
 
 A merge that lands at once is said landed then, so the mesh keeps

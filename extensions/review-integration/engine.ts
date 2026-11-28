@@ -273,6 +273,27 @@ export function mirroredRunsDir(): string {
 }
 
 /**
+ * Where other machines' findings are mirrored, a folder a node, each
+ * holding that machine's `review/findings` files as they are, as
+ * `findings-from/<node>/*.json`. Filled from outside the harness, as
+ * runs-from is, and only ever read: a mirrored round's findings are
+ * copied into this machine's store under the hosted change.
+ */
+export function mirroredFindingsDir(): string {
+	return join(stateDir("review"), "findings-from");
+}
+
+/**
+ * Where other machines' kept answers are mirrored, as
+ * `answers-from/<node>/<roundId>/`, each that machine's
+ * `review/answers/<roundId>/`. Only ever read: a round adopted here has
+ * its answers copied under `answers` when they are not there yet.
+ */
+export function mirroredAnswersDir(): string {
+	return join(stateDir("review"), "answers-from");
+}
+
+/**
  * Where a round's reviewers leave their transcripts.
  *
  * Beside the ledger rather than inside it: the ledger is a small file
