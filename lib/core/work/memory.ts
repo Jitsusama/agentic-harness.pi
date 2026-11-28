@@ -73,6 +73,12 @@ export interface TreeMemory {
 	 * caller replaying a record, or a test constructing one, must be able to
 	 * write what it means rather than have this process's identity stamped
 	 * over it.
+	 *
+	 * Refused with {@link BeingRemoved} while a sweep that marked a record
+	 * of the tree's path as `removing` still runs, judged under the
+	 * record's lock, where the sweep made the mark: the tree goes once it
+	 * finishes, so it is never joined. A mark whose sweep has ended is
+	 * dropped as this session takes the tree up.
 	 */
 	rememberHeldByUs(held: HeldTree, facts?: ProcessFacts): Promise<void>;
 	/** Forget one, once it has genuinely gone. */
@@ -165,11 +171,11 @@ export interface TreeMemory {
 	 * its record names has ended, judged under the record's lock as
 	 * {@link whileUnheld} judges it.
 	 *
-	 * For a tree that can't be moved aside before it is removed: while
-	 * the record names a running session, the broker hands the tree to
-	 * nobody else, so a removal that takes minutes can run outside the
-	 * lock. Never for a shareable tree, which another session may join
-	 * whoever holds it. Answers the record as it was, so a caller whose
+	 * For a tree that can't be moved aside before it is removed: the
+	 * record is marked `removing` as this session takes it, and while this
+	 * session runs, {@link rememberHeldByUs} refuses anyone else the tree,
+	 * shareable or not, so a removal that takes minutes can run outside the
+	 * lock. Answers the record as it was, unmarked, so a caller whose
 	 * removal fails can put it back, or nothing when the tree is held, or
 	 * when the machine won't say when this session started.
 	 */
@@ -177,6 +183,12 @@ export interface TreeMemory {
 		path: string,
 		facts?: ProcessFacts,
 	): Promise<HeldTree | undefined>;
+	/**
+	 * Whether a record of the tree at `path` is marked `removing` by a
+	 * sweep still running, read afresh from disk, so a session asking for
+	 * the tree can wait for the removal rather than join it.
+	 */
+	removalUnderWay(path: string, facts?: ProcessFacts): Promise<boolean>;
 	/**
 	 * Run `take` on a tree whatever sessions hold it, but only while none
 	 * has asked for it since `since`, in milliseconds since the epoch, and
@@ -253,6 +265,36 @@ export class RecordWent extends Error {
 		);
 		this.name = "RecordWent";
 	}
+}
+
+/**
+ * A tree a sweep is removing: it made itself the tree's only holder and
+ * still runs, so the tree goes once it finishes and nobody may join it.
+ */
+export class BeingRemoved extends Error {
+	constructor(path: string) {
+		super(
+			`${path} is being removed by a sweep, which holds it until it is gone`,
+		);
+		this.name = "BeingRemoved";
+	}
+}
+
+/**
+ * Whether `tree` is marked as being removed by a sweep still running. A
+ * mark whose holders have all ended was left by a removal cut off, and
+ * one naming nobody can't say who removes it, so neither holds anyone
+ * back.
+ */
+async function removedNow(
+	tree: HeldTree,
+	facts: ProcessFacts,
+): Promise<boolean> {
+	return (
+		tree.removing !== undefined &&
+		named(tree).length > 0 &&
+		!(await spent(tree, facts))
+	);
 }
 
 /** What changes about a directory when an entry in it does. */
@@ -796,6 +838,35 @@ export function createTreeMemory(
 		}
 	}
 
+	/**
+	 * Whether a record of the tree at `path` is marked by a sweep still
+	 * running. Every record naming the path is read, since World files one
+	 * tree under two keys. Only a marked record asks after its holders, so
+	 * an ordinary cut pays no probe.
+	 */
+	async function removalAt(
+		path: string,
+		facts: ProcessFacts,
+	): Promise<boolean> {
+		const marked = all()
+			.map(({ held }) => held)
+			.filter((tree) => tree.path === path && tree.removing !== undefined);
+		if (marked.length === 0) return false;
+		const once = askedOnceWithTicks(facts === systemFacts ? tickFacts : facts);
+		for (const tree of marked) {
+			if (await removedNow(tree, once)) return true;
+		}
+		return false;
+	}
+
+	/** Throw {@link BeingRemoved} while a sweep removes the tree at `path`. */
+	async function refuseWhileRemoved(
+		path: string,
+		facts: ProcessFacts,
+	): Promise<void> {
+		if (await removalAt(path, facts)) throw new BeingRemoved(path);
+	}
+
 	return {
 		remember(held) {
 			mkdirSync(dir, { recursive: true });
@@ -831,7 +902,9 @@ export function createTreeMemory(
 				// Under the lock all the same, since a sweep judges a record's
 				// use under it.
 				await underLock(held.identity.key, async () => {
-					this.remember({ ...held, ...sessionsWith(held), usedAt: Date.now() });
+					await refuseWhileRemoved(held.path, facts);
+					const { removing: _, ...rest } = held;
+					this.remember({ ...rest, ...sessionsWith(held), usedAt: Date.now() });
 				});
 				return;
 			}
@@ -842,12 +915,15 @@ export function createTreeMemory(
 			// probed here, since this is on the path of every cut. Read and
 			// written under the record's lock, since another session adding
 			// itself between the two would otherwise be written out again.
+			// A sweep marks the record it removes under this lock, so a mark
+			// read here is one this write would otherwise slip past.
 			await underLock(held.identity.key, async () => {
+				await refuseWhileRemoved(held.path, facts);
 				const found = this.recall().find((tree) => tree.path === held.path);
 				const before = (found?.owners ?? held.owners ?? []).filter(
 					(one) => isOwner(one) && !sameOwner(one, us),
 				);
-				const { sessions: _, ...rest } = held;
+				const { sessions: _, removing: __, ...rest } = held;
 				this.remember({
 					...rest,
 					owners: [...before, us],
@@ -1030,12 +1106,17 @@ export function createTreeMemory(
 			await underLock(found.identity.key, async () => {
 				const tree = this.recall().find((one) => one.path === path);
 				if (tree === undefined || !(await spent(tree, facts))) return;
-				const { sessions: _, ...rest } = tree;
-				this.remember({ ...rest, owners: [us] });
-				before = tree;
+				const { sessions: _, removing: __, ...rest } = tree;
+				this.remember({ ...rest, owners: [us], removing: Date.now() });
+				// Unmarked, so a removal that fails puts back a tree anyone may
+				// take up, even one an earlier sweep, cut off, left marked.
+				const { removing: ___, ...unmarked } = tree;
+				before = unmarked;
 			});
 			return before;
 		},
+
+		removalUnderWay: (path, facts = systemFacts) => removalAt(path, facts),
 
 		async heldNow(facts = systemFacts) {
 			const held: HeldTree[] = [];
@@ -1081,7 +1162,11 @@ export function createTreeMemory(
 			// a subagent cut lists the session that ran it too, and re-owning
 			// that would make the runner a holder of its lane's tree and turn
 			// the lane's next job away from it.
+			// Nor a tree a sweep marked to remove: a removal never outlives
+			// its process, so re-owned, a mark the restart cut off would hold
+			// every asker back for as long as the session lives.
 			const names = (tree: HeldTree) =>
+				tree.removing === undefined &&
 				named(tree).some((owner) => owner.session === session);
 			// Listed off the thread, and each record read again alone: every
 			// session starting in a host runs this. Read on the thread, the

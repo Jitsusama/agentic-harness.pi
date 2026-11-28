@@ -9,4 +9,6 @@ open sessions left clean and pushed a day, whose branches stay for them
 has. How the sweep chooses which idle snapshots to
 judge, and when it stops, is tested against git's answers made up, in
 `sweep-idle-choosing.test.ts`. Which trees it asks git's status of, and
-how many at once, is in `sweep-status.test.ts`. What they stand on is in `../support/`.
+how many at once, is in `sweep-status.test.ts`. The old snapshots another
+provider cut, and a session asking for one while it is removed, are in
+`sweep-old-snapshots.test.ts`. What they stand on is in `../support/`.
