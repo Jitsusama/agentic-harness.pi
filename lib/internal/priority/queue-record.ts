@@ -9,6 +9,7 @@ import { NOBODY } from "./awaited.ts";
 import type { Processes } from "./folder.ts";
 import { workNameIn } from "./name.ts";
 import { type Outcome, ranSAfter } from "./outcome.ts";
+import { type PushClass, pushClassOfJob } from "./push-class.ts";
 import {
 	CLASS_OF,
 	type Class,
@@ -70,6 +71,12 @@ export interface QueueRecord {
 		readonly owner: Job["owner"];
 		readonly what: string;
 		readonly memoryGib: number;
+		/**
+		 * The class World's push gate ranks it by, which it waits by among
+		 * the walks, 0 first: its own, or 2 for one that carries none. Only
+		 * for a walk of World's objects.
+		 */
+		readonly pushClass?: PushClass;
 		/** When it started, or began to wait. */
 		readonly since: string;
 		/** Its place in line, from 1, while it waits. */
@@ -190,6 +197,9 @@ export function queueRecord(
 				owner: job.owner,
 				what: job.what,
 				memoryGib: needsGibOf(job),
+				...(job.kind === "world-walk"
+					? { pushClass: pushClassOfJob(job) }
+					: {}),
 				since: job.started ?? job.since,
 				...(job.started === undefined && !job.planning
 					? { place: waiting.indexOf(job) + 1 }
